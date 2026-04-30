@@ -21,10 +21,12 @@ Image.MAX_IMAGE_PIXELS = None
 
 # Configuration
 
-NDPI_DIR = r"C:\McGill\U3\COMP400\cancer_trajectory_atlas\data\MCF7_x5"
-PNG_DIR = r"C:\McGill\U3\COMP400\cancer_trajectory_atlas\data\MCF7_x5_cropped"
-ANNOTATION_DIR = r"C:\McGill\U3\COMP400\cancer_trajectory_atlas\data\annotations"
-OUTPUT_DIR = r"C:\McGill\U3\COMP400\results\atlas_full"
+# Paths relative to this file's location
+_SCRIPT_DIR = Path(__file__).parent
+NDPI_DIR = _SCRIPT_DIR / "data" / "MCF7_x5"
+PNG_DIR = _SCRIPT_DIR / "data" / "MCF7_x5_cropped"
+ANNOTATION_DIR = _SCRIPT_DIR / "data" / "annotations"
+OUTPUT_DIR = _SCRIPT_DIR.parent / "results" / "atlas_full"
 
 # NDPI conversion settings
 NDPI_LEVEL = 0          # Pyramid level (0 = full res, higher = lower res)
@@ -36,7 +38,7 @@ PATCH_SIZE = 112
 STRIDE = 96
 CLUSTERING_METHOD = "leiden"
 LEIDEN_RESOLUTION = 0.5
-STAIN_NORMALIZATION = "reinhard"    # "macenko" or "none"
+STAIN_NORMALIZATION = "reinhard"    # "reinhard" or "macenko" or "none"
 N_PERMUTATIONS = 1000
 USE_STARDIST = False               # True = better nuclear seg, but slower
 
@@ -257,19 +259,20 @@ def run_pipeline():
 
     t_start = time.time()
 
-    # Imports
-    from cancer_trajectory_atlas.data.stain_normalization import build_normalizer, normalize_slide
-    from cancer_trajectory_atlas.features.patching import get_patches_from_array, load_roi_polygons
-    from cancer_trajectory_atlas.features.extractors import extract_features
-    from cancer_trajectory_atlas.analysis.clustering import (
+    # Imports (relative to this module)
+    from .data.stain_normalization import build_normalizer, normalize_slide
+    from .features.patching import get_patches_from_array, load_roi_polygons
+    from .features.extractors import extract_features
+    from .analysis.clustering import (
         fit_pca, run_umap, cluster, check_slide_independence, get_cluster_centroids,
     )
-    from cancer_trajectory_atlas.analysis.diffusion import (
+    from .analysis.diffusion import (
         build_adata, compute_diffusion_map, compute_dpt,
     )
-    from cancer_trajectory_atlas.validation.morphological_features import compute_morphological_features
-    from cancer_trajectory_atlas.validation.correlations import run_full_validation
-    from cancer_trajectory_atlas.utils import viz, io
+    from .validation.morphological_features import compute_morphological_features
+    from .validation.correlations import run_full_validation
+    from . import utils
+    from .utils import viz, io
 
     # Stain normalization
     print(f"\n{'='*60}")
