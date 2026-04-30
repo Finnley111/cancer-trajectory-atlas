@@ -21,12 +21,23 @@ Image.MAX_IMAGE_PIXELS = None
 
 # Configuration
 
-# Paths relative to this file's location
+# Load paths from paths.json if it exists, otherwise use local relative paths (for development)
 _SCRIPT_DIR = Path(__file__).parent
-NDPI_DIR = _SCRIPT_DIR / "data" / "MCF7_x5"
-PNG_DIR = _SCRIPT_DIR / "data" / "MCF7_x5_cropped"
-ANNOTATION_DIR = _SCRIPT_DIR / "data" / "annotations"
-OUTPUT_DIR = _SCRIPT_DIR.parent / "results" / "atlas_full"
+_PATHS_FILE = _SCRIPT_DIR / "paths.json"
+
+if _PATHS_FILE.exists():
+    with open(_PATHS_FILE) as f:
+        _paths_config = json.load(f)
+    NDPI_DIR = Path(_paths_config["raw_ndpi"]).expanduser()
+    PNG_DIR = Path(_paths_config["cropped_png"]).expanduser()
+    ANNOTATION_DIR = Path(_paths_config["annotations"]).expanduser()
+    OUTPUT_DIR = Path(_paths_config["results"]).expanduser() / "atlas_full"
+else:
+    # Fallback to local relative paths (for development)
+    NDPI_DIR = _SCRIPT_DIR / "data" / "MCF7_x5"
+    PNG_DIR = _SCRIPT_DIR / "data" / "MCF7_x5_cropped"
+    ANNOTATION_DIR = _SCRIPT_DIR / "data" / "annotations"
+    OUTPUT_DIR = _SCRIPT_DIR.parent / "results" / "atlas_full"
 
 # NDPI conversion settings
 NDPI_LEVEL = 0          # Pyramid level (0 = full res, higher = lower res)

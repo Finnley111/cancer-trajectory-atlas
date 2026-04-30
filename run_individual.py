@@ -29,10 +29,21 @@ Image.MAX_IMAGE_PIXELS = None
 
 # Configuration
 
+# Load paths from paths.json if it exists, otherwise use local relative paths (for development)
 _SCRIPT_DIR = Path(__file__).parent
-PNG_DIR = _SCRIPT_DIR / "data" / "MCF7_x5_cropped"
-ANNOTATION_DIR = _SCRIPT_DIR / "data" / "annotations"
-OUTPUT_DIR = _SCRIPT_DIR.parent / "individual_pseudotime_runs"
+_PATHS_FILE = _SCRIPT_DIR / "paths.json"
+
+if _PATHS_FILE.exists():
+    with open(_PATHS_FILE) as f:
+        _paths_config = json.load(f)
+    PNG_DIR = Path(_paths_config["cropped_png"]).expanduser()
+    ANNOTATION_DIR = Path(_paths_config["annotations"]).expanduser()
+    OUTPUT_DIR = Path(_paths_config["results"]).expanduser() / "individual_pseudotime_runs"
+else:
+    # Fallback to local relative paths (for development)
+    PNG_DIR = _SCRIPT_DIR / "data" / "MCF7_x5_cropped"
+    ANNOTATION_DIR = _SCRIPT_DIR / "data" / "annotations"
+    OUTPUT_DIR = _SCRIPT_DIR.parent / "individual_pseudotime_runs"
 
 # Pipeline settings — kept in sync with run_all.py
 MODEL = "phikon"
