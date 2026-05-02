@@ -27,30 +27,37 @@ from scipy.ndimage import zoom, gaussian_filter
 Image.MAX_IMAGE_PIXELS = None
 
 
-# Configuration
+# Default configuration loader
 
-# Load paths from paths.json if it exists, otherwise use local relative paths (for development)
 _SCRIPT_DIR = Path(__file__).parent
 _PATHS_FILE = _SCRIPT_DIR / "paths.json"
 
-if _PATHS_FILE.exists():
-    with open(_PATHS_FILE) as f:
-        _paths_config = json.load(f)
-    PNG_DIR = Path(_paths_config["cropped_png"]).expanduser()
-    ANNOTATION_DIR = Path(_paths_config["annotations"]).expanduser()
-    OUTPUT_DIR = Path(_paths_config["results"]).expanduser() / "individual_pseudotime_runs"
-else:
-    # Fallback to local relative paths (for development)
-    PNG_DIR = _SCRIPT_DIR / "data" / "MCF7_x5_cropped"
-    ANNOTATION_DIR = _SCRIPT_DIR / "data" / "annotations"
-    OUTPUT_DIR = _SCRIPT_DIR.parent / "individual_pseudotime_runs"
+def _load_default_paths():
+    """Load paths from paths.json or use local development paths."""
+    if _PATHS_FILE.exists():
+        with open(_PATHS_FILE) as f:
+            config = json.load(f)
+        return {
+            "png_dir": Path(config["cropped_png"]).expanduser(),
+            "annotation_dir": Path(config["annotations"]).expanduser(),
+            "output_dir": Path(config["results"]).expanduser() / "individual_pseudotime_runs",
+        }
+    else:
+        return {
+            "png_dir": _SCRIPT_DIR / "data" / "MCF7_x5_cropped",
+            "annotation_dir": _SCRIPT_DIR / "data" / "annotations",
+            "output_dir": _SCRIPT_DIR.parent / "individual_pseudotime_runs",
+        }
 
-# Pipeline settings — kept in sync with run_all.py
-MODEL = "phikon"
-PATCH_SIZE = 112
-STRIDE = 96
-LEIDEN_RESOLUTION = 0.5
-STAIN_NORMALIZATION = "reinhard"
+# Global variables (will be set by CLI arguments)
+PNG_DIR = None
+ANNOTATION_DIR = None
+OUTPUT_DIR = None
+MODEL = None
+PATCH_SIZE = None
+STRIDE = None
+LEIDEN_RESOLUTION = None
+STAIN_NORMALIZATION = None
 
 # Same fallback table as run_all.py (used when slide_dimensions.json is missing)
 NDPI_SCALE = 0.5
@@ -390,17 +397,57 @@ def main():
     parser = argparse.ArgumentParser(
         description="Per-slide pseudotime runner",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python -m cancer_trajectory_atlas.run_individual                    # all slides
+  python -m cancer_trajectory_atlas.run_individual --slide 6027       # single slide
+  python -m cancer_trajectory_atlas.run_individual --png-dir ~/scratch/data/png
+  python -m cancer_trajectory_atlas.run_individual --leiden-resolution 1.0
+  python -m cancer_trajectory_atlas.run_individual --stain-method macenko
+        """,
     )
+    
+    # Filter and output
     parser.add_argument("--slide", default=None,
                         help="Substring filter — only run slides whose name contains this.")
-    parser.add_argument("--leiden_resolution", type=float, default=LEIDEN_RESOLUTION,
-                        help="Leiden resolution (lower = fewer clusters).")
-    parser.add_argument("--output", default=str(OUTPUT_DIR),
-                        help="Output root directory.")
+    
+    # Paths
+    default_paths = _load_default_paths()
+    parser.add_argument("--png-dir", type=Path, default=default_paths["png_dir"],
+                        help=f"Directory with cropped PNG slides (default: {default_paths['png_dir']})")
+    parser.add_argument("--annotation-dir", type=Path, default=default_paths["annotation_dir"],
+                        help=f"Directory with annotation JSON files (default: {default_paths['annotation_dir']})")
+    parser.add_argument("--output-dir", type=Path, default=default_paths["output_dir"],
+                        help=f"Output directory for results (default: {default_paths['output_dir']})")
+    
+    # Pipeline settings
+    parser.add_argument("--model", type=str, default="phikon", choices=["phikon", "resnet50"],
+                        help="Feature extraction model (default: phikon)")
+    parser.add_argument("--patch-size", type=int, default=112,
+                        help="Patch size in pixels (default: 112)")
+    parser.add_argument("--stride", type=int, default=96,
+                        help="Stride between patches (default: 96)")
+    parser.add_argument("--leiden-resolution", type=float, default=0.5,
+                        help="Leiden resolution (higher=more clusters; default: 0.5)")
+    parser.add_argument("--stain-method", type=str, default="reinhard",
+                        choices=["reinhard", "macenko", "none"],
+                        help="Stain normalization method (default: reinhard)")
+    
     args = parser.parse_args()
+    
+    # Set global variables from CLI arguments
+    global PNG_DIR, ANNOTATION_DIR, OUTPUT_DIR, MODEL, PATCH_SIZE, STRIDE, LEIDEN_RESOLUTION, STAIN_NORMALIZATION
+    PNG_DIR = args.png_dir
+    ANNOTATION_DIR = args.annotation_dir
+    OUTPUT_DIR = args.output_dir
+    MODEL = args.model
+    PATCH_SIZE = args.patch_size
+    STRIDE = args.stride
+    LEIDEN_RESOLUTION = args.leiden_resolution
+    STAIN_NORMALIZATION = args.stain_method
 
     slides = discover_slides(filter_name=args.slide)
-    out_root = Path(args.output)
+    out_root = Path(OUTPUT_DIR)
     out_root.mkdir(parents=True, exist_ok=True)
 
     print(f"\nRunning per-slide pseudotime on {len(slides)} slides")
@@ -419,7 +466,7 @@ def main():
         try:
             summary = run_one_slide(
                 slide_cfg, stain_normalizer, out_root,
-                leiden_resolution=args.leiden_resolution,
+                leiden_resolution=LEIDEN_RESOLUTION,
             )
             if summary is not None:
                 summaries.append(summary)

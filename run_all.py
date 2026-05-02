@@ -19,39 +19,45 @@ from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
 
 
-# Configuration
+# Default configuration loader
 
-# Load paths from paths.json if it exists, otherwise use local relative paths (for development)
 _SCRIPT_DIR = Path(__file__).parent
 _PATHS_FILE = _SCRIPT_DIR / "paths.json"
 
-if _PATHS_FILE.exists():
-    with open(_PATHS_FILE) as f:
-        _paths_config = json.load(f)
-    NDPI_DIR = Path(_paths_config["raw_ndpi"]).expanduser()
-    PNG_DIR = Path(_paths_config["cropped_png"]).expanduser()
-    ANNOTATION_DIR = Path(_paths_config["annotations"]).expanduser()
-    OUTPUT_DIR = Path(_paths_config["results"]).expanduser() / "atlas_full"
-else:
-    # Fallback to local relative paths (for development)
-    NDPI_DIR = _SCRIPT_DIR / "data" / "MCF7_x5"
-    PNG_DIR = _SCRIPT_DIR / "data" / "MCF7_x5_cropped"
-    ANNOTATION_DIR = _SCRIPT_DIR / "data" / "annotations"
-    OUTPUT_DIR = _SCRIPT_DIR.parent / "results" / "atlas_full"
+def _load_default_paths():
+    """Load paths from paths.json or use local development paths."""
+    if _PATHS_FILE.exists():
+        with open(_PATHS_FILE) as f:
+            config = json.load(f)
+        return {
+            "ndpi_dir": Path(config["raw_ndpi"]).expanduser(),
+            "png_dir": Path(config["cropped_png"]).expanduser(),
+            "annotation_dir": Path(config["annotations"]).expanduser(),
+            "output_dir": Path(config["results"]).expanduser() / "atlas_full",
+        }
+    else:
+        return {
+            "ndpi_dir": _SCRIPT_DIR / "data" / "MCF7_x5",
+            "png_dir": _SCRIPT_DIR / "data" / "MCF7_x5_cropped",
+            "annotation_dir": _SCRIPT_DIR / "data" / "annotations",
+            "output_dir": _SCRIPT_DIR.parent / "results" / "atlas_full",
+        }
 
-# NDPI conversion settings
-NDPI_LEVEL = 0          # Pyramid level (0 = full res, higher = lower res)
-NDPI_SCALE = 0.5        # Additional downscale factor (0.5 = half size)
-
-# Pipeline settings
-MODEL = "phikon"
-PATCH_SIZE = 112
-STRIDE = 96
-CLUSTERING_METHOD = "leiden"
-LEIDEN_RESOLUTION = 0.5
-STAIN_NORMALIZATION = "reinhard"    # "reinhard" or "macenko" or "none"
-N_PERMUTATIONS = 1000
-USE_STARDIST = False               # True = better nuclear seg, but slower
+# Global variables (will be set by CLI arguments)
+NDPI_DIR = None
+PNG_DIR = None
+ANNOTATION_DIR = None
+OUTPUT_DIR = None
+NDPI_LEVEL = None
+NDPI_SCALE = None
+MODEL = None
+PATCH_SIZE = None
+STRIDE = None
+CLUSTERING_METHOD = None
+LEIDEN_RESOLUTION = None
+STAIN_NORMALIZATION = None
+N_PERMUTATIONS = None
+USE_STARDIST = None
 
 # Known NDPI dimensions at level 0.
 # Used as a fallback when slide_dimensions.json is missing.
@@ -520,15 +526,56 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python run_all.py --convert          # Convert NDPI → left-half PNG
-  python run_all.py --run              # Run pipeline on existing PNGs
-  python run_all.py --convert --run    # Convert then run
+  python run_all.py --convert
+  python run_all.py --run
+  python run_all.py --convert --run
+  python run_all.py --run --png-dir ~/scratch/data/png --output-dir ~/scratch/results
+  python run_all.py --run --model phikon --leiden-resolution 1.0 --stain-method macenko
         """,
     )
+    
+    # Pipeline steps
     parser.add_argument("--convert", action="store_true",
                         help="Convert NDPI files to left-half PNGs")
     parser.add_argument("--run", action="store_true",
                         help="Run the analysis pipeline")
+    
+    # Path arguments (with intelligent defaults)
+    default_paths = _load_default_paths()
+    parser.add_argument("--ndpi-dir", type=Path, default=default_paths["ndpi_dir"],
+                        help=f"Directory with NDPI files (default: {default_paths['ndpi_dir']})")
+    parser.add_argument("--png-dir", type=Path, default=default_paths["png_dir"],
+                        help=f"Directory for cropped PNGs (default: {default_paths['png_dir']})")
+    parser.add_argument("--annotation-dir", type=Path, default=default_paths["annotation_dir"],
+                        help=f"Directory with annotation JSON files (default: {default_paths['annotation_dir']})")
+    parser.add_argument("--output-dir", type=Path, default=default_paths["output_dir"],
+                        help=f"Output directory for results (default: {default_paths['output_dir']})")
+    
+    # NDPI conversion settings
+    parser.add_argument("--ndpi-level", type=int, default=0,
+                        help="NDPI pyramid level (0=full res, higher=lower res; default: 0)")
+    parser.add_argument("--ndpi-scale", type=float, default=0.5,
+                        help="Additional downscale factor (default: 0.5)")
+    
+    # Pipeline settings
+    parser.add_argument("--model", type=str, default="phikon", choices=["phikon", "resnet50"],
+                        help="Feature extraction model (default: phikon)")
+    parser.add_argument("--patch-size", type=int, default=112,
+                        help="Patch size in pixels (default: 112)")
+    parser.add_argument("--stride", type=int, default=96,
+                        help="Stride between patches (default: 96)")
+    parser.add_argument("--clustering-method", type=str, default="leiden", 
+                        choices=["leiden", "hdbscan", "kmeans"],
+                        help="Clustering algorithm (default: leiden)")
+    parser.add_argument("--leiden-resolution", type=float, default=0.5,
+                        help="Leiden resolution (higher=more clusters; default: 0.5)")
+    parser.add_argument("--stain-method", type=str, default="reinhard",
+                        choices=["reinhard", "macenko", "none"],
+                        help="Stain normalization method (default: reinhard)")
+    parser.add_argument("--n-permutations", type=int, default=1000,
+                        help="Number of permutations for validation (default: 1000)")
+    parser.add_argument("--use-stardist", action="store_true",
+                        help="Use StarDist for nuclear segmentation (slower, more accurate)")
 
     args = parser.parse_args()
 
@@ -536,6 +583,22 @@ Examples:
         parser.print_help()
         print("\n  Specify --convert, --run, or both.")
         sys.exit(0)
+
+    # Set global variables from CLI arguments
+    NDPI_DIR = args.ndpi_dir
+    PNG_DIR = args.png_dir
+    ANNOTATION_DIR = args.annotation_dir
+    OUTPUT_DIR = args.output_dir
+    NDPI_LEVEL = args.ndpi_level
+    NDPI_SCALE = args.ndpi_scale
+    MODEL = args.model
+    PATCH_SIZE = args.patch_size
+    STRIDE = args.stride
+    CLUSTERING_METHOD = args.clustering_method
+    LEIDEN_RESOLUTION = args.leiden_resolution
+    STAIN_NORMALIZATION = args.stain_method
+    N_PERMUTATIONS = args.n_permutations
+    USE_STARDIST = args.use_stardist
 
     if args.convert:
         convert_ndpi_to_left_half_png()
