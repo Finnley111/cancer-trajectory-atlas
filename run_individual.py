@@ -202,7 +202,9 @@ def plot_pseudotime_heatmap_overlay(
     # Upsample grid + mask to image resolution
     zh, zw = H / gh, W / gw
     pt_full = zoom(grid, (zh, zw), order=1)
-    mask_full = zoom(valid.astype(float), (zh, zw), order=1) > 0.4
+    # Upsample the boolean validity mask with nearest-neighbor to avoid
+    # linear interpolation producing partial values outside annotated areas.
+    mask_full = zoom(valid.astype(float), (zh, zw), order=0) > 0.5
 
     # Trim to image dims (zoom can produce ±1 pixel rounding)
     pt_full = pt_full[:H, :W]
@@ -280,31 +282,33 @@ def run_one_slide(slide_cfg, stain_normalizer, out_root, leiden_resolution):
         print(f"  ROIs: {len(roi_polys)} polygons")
         
         # ====================================================
-        # DEBUG: VISUALIZE ROI ALIGNMENT
+        # DEBUG: VISUALIZE ROI ALIGNMENT (MEMORY SAFE)
         # ====================================================
         import matplotlib.pyplot as plt
         from matplotlib.patches import Polygon as MatplotPoly
         
-        fig, ax = plt.subplots(figsize=(12, 12))
-        ax.imshow(img_arr)
+        # Downsample the image by 10x to prevent Matplotlib OOM crash
+        step = 10
+        small_img = img_arr[::step, ::step]
         
-        # Assuming roi_polys is a list of shapely Polygons or lists of (x,y) coords
+        fig, ax = plt.subplots(figsize=(12, 12))
+        ax.imshow(small_img)
+        
         for poly in roi_polys:
-            # If they are shapely objects, extract the exterior coordinates
+            # Extract and scale down coordinates to match the small image
             if hasattr(poly, 'exterior'):
                 x, y = poly.exterior.xy
-                xy_coords = np.column_stack((x, y))
+                xy_coords = np.column_stack((x, y)) / step
             else:
-                # If it's already a list/array of coords
-                xy_coords = np.array(poly)
+                xy_coords = np.array(poly) / step
                 
-            patch = MatplotPoly(xy_coords, closed=True, edgecolor='lime', facecolor='none', linewidth=3)
+            patch = MatplotPoly(xy_coords, closed=True, edgecolor='lime', facecolor='none', linewidth=2)
             ax.add_patch(patch)
             
         ax.set_title(f"ROI Debug - {name}")
         debug_path = out_dir / f"DEBUG_ROI_OVERLAY_{name}.jpg"
         plt.savefig(debug_path, dpi=150, bbox_inches='tight')
-        plt.close()
+        plt.close(fig) # Explicitly close the figure to free memory
         print(f"  [DEBUG] Saved ROI overlay to {debug_path}. CHECK THIS IMAGE!")
         # ====================================================
     else:
