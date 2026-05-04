@@ -3,20 +3,22 @@
 import numpy as np
 from typing import Optional, Tuple
 
-try:
-    import scanpy as sc
-    import anndata as ad
-    SCANPY_AVAILABLE = True
-except ImportError:
-    SCANPY_AVAILABLE = False
-
-
 def _require_scanpy():
-    if not SCANPY_AVAILABLE:
-        raise ImportError(
-            "scanpy and anndata are required for diffusion pseudotime.  "
-            "pip install scanpy anndata"
-        )
+    try:
+        import scanpy as sc
+        import anndata as ad
+        # Let's force an igraph import test here just to be safe
+        import igraph
+    except ImportError as e:
+        print(f"\n==================================================")
+        print(f"CRITICAL DEPENDENCY ERROR DETECTED ON COMPUTE NODE")
+        print(f"==================================================")
+        print(f"The actual missing module is: {e.name}")
+        print(f"Full error message: {e.msg}")
+        print(f"==================================================\n")
+        import traceback
+        traceback.print_exc()
+        raise e
 
 
 def build_adata(
@@ -27,6 +29,7 @@ def build_adata(
 ) -> "ad.AnnData":
     """Create an AnnData object from PCA features and metadata."""
     _require_scanpy()
+    import anndata as ad # dynamic import
 
     adata = ad.AnnData(X=X_pca.astype(np.float32))
     adata.obs["cluster"] = cluster_labels.astype(str)
@@ -45,6 +48,7 @@ def compute_diffusion_map(
 ) -> "ad.AnnData":
     """Build the neighbor graph and compute diffusion map components."""
     _require_scanpy()
+    import scanpy as sc # dynamic import
 
     print(f"  Building neighbor graph (k={n_neighbors})...")
     sc.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep="X")
@@ -103,6 +107,7 @@ def compute_dpt(
     (the latter normalized to [0, 1]).
     """
     _require_scanpy()
+    import scanpy as sc # dynamic import
 
     if root_cluster is not None:
         root_idx = choose_root_cell(adata, root_cluster)
