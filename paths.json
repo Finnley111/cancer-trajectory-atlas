@@ -1,7 +1,7 @@
 {
     "raw_ndpi": "~/scratch/data/ndpi",
     "cropped_png": "~/scratch/data/MCF7_x5_cropped",
-    "annotations": "~/scratch/data/annotations",
-    "results": "~/cancer_trajectory_atlas/results",
-    "stain_reference": "~/scratch/data/MCF7_x5_cropped/reference.png"
+    "annotations": "~/cancer_trajectory_atlas/data/annotations",
+    "results": "~/scratch/results/cancer_trajectory_atlas",
+    "stain_reference": "~/scratch/data/MCF7_x5_cropped/6028-4L-2M-2_x5.png"
 }
