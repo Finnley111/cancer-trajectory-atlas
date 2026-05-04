@@ -277,6 +277,36 @@ def run_one_slide(slide_cfg, stain_normalizer, out_root, leiden_resolution):
             cropped_h=img_arr.shape[0],
         )
         print(f"  ROIs: {len(roi_polys)} polygons")
+        print(f"  ROIs: {len(roi_polys)} polygons")
+        
+        # ====================================================
+        # DEBUG: VISUALIZE ROI ALIGNMENT
+        # ====================================================
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Polygon as MatplotPoly
+        
+        fig, ax = plt.subplots(figsize=(12, 12))
+        ax.imshow(img_arr)
+        
+        # Assuming roi_polys is a list of shapely Polygons or lists of (x,y) coords
+        for poly in roi_polys:
+            # If they are shapely objects, extract the exterior coordinates
+            if hasattr(poly, 'exterior'):
+                x, y = poly.exterior.xy
+                xy_coords = np.column_stack((x, y))
+            else:
+                # If it's already a list/array of coords
+                xy_coords = np.array(poly)
+                
+            patch = MatplotPoly(xy_coords, closed=True, edgecolor='lime', facecolor='none', linewidth=3)
+            ax.add_patch(patch)
+            
+        ax.set_title(f"ROI Debug - {name}")
+        debug_path = out_dir / f"DEBUG_ROI_OVERLAY_{name}.jpg"
+        plt.savefig(debug_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        print(f"  [DEBUG] Saved ROI overlay to {debug_path}. CHECK THIS IMAGE!")
+        # ====================================================
     else:
         print(f"  No annotation — using full slide")
 
