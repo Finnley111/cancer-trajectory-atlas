@@ -287,7 +287,6 @@ def run_one_slide(slide_cfg, stain_normalizer, out_root, leiden_resolution):
         import matplotlib.pyplot as plt
         from matplotlib.patches import Polygon as MatplotPoly
         
-        # Downsample the image by 10x to prevent Matplotlib OOM crash
         step = 10
         small_img = img_arr[::step, ::step]
         
@@ -295,10 +294,14 @@ def run_one_slide(slide_cfg, stain_normalizer, out_root, leiden_resolution):
         ax.imshow(small_img)
         
         for poly in roi_polys:
-            # Extract and scale down coordinates to match the small image
+            # 1. Handle shapely Polygons
             if hasattr(poly, 'exterior'):
                 x, y = poly.exterior.xy
                 xy_coords = np.column_stack((x, y)) / step
+            # 2. Handle matplotlib.path.Path objects (THIS FIXES YOUR ERROR)
+            elif hasattr(poly, 'vertices'):
+                xy_coords = poly.vertices / step
+            # 3. Handle raw lists/arrays of coordinates
             else:
                 xy_coords = np.array(poly) / step
                 
@@ -308,7 +311,7 @@ def run_one_slide(slide_cfg, stain_normalizer, out_root, leiden_resolution):
         ax.set_title(f"ROI Debug - {name}")
         debug_path = out_dir / f"DEBUG_ROI_OVERLAY_{name}.jpg"
         plt.savefig(debug_path, dpi=150, bbox_inches='tight')
-        plt.close(fig) # Explicitly close the figure to free memory
+        plt.close(fig) 
         print(f"  [DEBUG] Saved ROI overlay to {debug_path}. CHECK THIS IMAGE!")
         # ====================================================
     else:
