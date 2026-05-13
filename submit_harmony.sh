@@ -42,7 +42,7 @@ else
 fi
 
 PNG_DIR=$SCRATCH/data/MCF7_x5_cropped
-ANN_DIR=$SCRATCH/data/annotations      # adjust if your annotations live elsewhere
+ANN_DIR=~/cancer_trajectory_atlas/annotations
 OUT_DIR=$SCRATCH/results/$OUT_NAME
 
 mkdir -p logs
