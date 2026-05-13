@@ -58,6 +58,8 @@ LEIDEN_RESOLUTION = None
 STAIN_NORMALIZATION = None
 N_PERMUTATIONS = None
 USE_STARDIST = None
+USE_HARMONY = None
+HARMONY_KEY = None
 
 # Known NDPI dimensions at level 0.
 # Used as a fallback when slide_dimensions.json is missing.
@@ -274,6 +276,11 @@ def run_pipeline():
     output_dir.mkdir(parents=True, exist_ok=True)
     fig_dir.mkdir(parents=True, exist_ok=True)
 
+    if USE_HARMONY and "harmony" not in str(output_dir).lower():
+        print(f"  NOTE: --harmony is active but 'harmony' is not in the output dir name.")
+        print(f"  Output: {output_dir}")
+        print(f"  Consider passing --output-dir with a distinct name to avoid clobbering.\n")
+
     t_start = time.time()
 
     # Imports (relative to this module)
@@ -382,17 +389,25 @@ def run_pipeline():
     print(f"{'='*60}")
 
     scaler, pca, X_pca = fit_pca(features, variance_target=0.95)
-    umap_reducer, X_umap = run_umap(X_pca)
+
+    # Optional Harmony batch correction — applied in PCA space before clustering
+    # and DPT so both use the same corrected representation.
+    X_embed = X_pca
+    if USE_HARMONY:
+        from .analysis.harmony import apply_harmony
+        X_embed = apply_harmony(X_pca, slide_names, slide_ids, key=HARMONY_KEY)
+
+    umap_reducer, X_umap = run_umap(X_embed)
 
     cluster_labels = cluster(
-        X_pca,
+        X_embed,
         method=CLUSTERING_METHOD,
         resolution=LEIDEN_RESOLUTION,
     )
 
     # Validation checks
     slide_check = check_slide_independence(cluster_labels, slide_ids)
-    centroids = get_cluster_centroids(X_pca, cluster_labels)
+    centroids = get_cluster_centroids(X_embed, cluster_labels)
 
     # Clustering figures
     if X_umap is not None:
@@ -418,7 +433,20 @@ def run_pipeline():
     print(f"  IMPORTANT: Inspect fig2_cluster_patches.png after this run.")
     print(f"  Set ROOT_CLUSTER to the most organized cluster, then re-run.\n")
 
-    adata = build_adata(X_pca, cluster_labels, slide_ids, X_umap)
+    adata = build_adata(X_embed, cluster_labels, slide_ids, X_umap)
+
+    # Add slide-level metadata (useful for QC batch plots and harmony ablations)
+    def _parse_section(name):
+        parts = name.replace("_x5", "").split("-")   # ["6027", "4L", "2M", "1"]
+        return f"{parts[-2]}-{parts[-1]}"             # "2M-1"
+
+    adata.obs["mouse_id"]       = [slide_names[sid].split("-")[0] for sid in slide_ids]
+    adata.obs["section_number"] = [_parse_section(slide_names[sid]) for sid in slide_ids]
+
+    if USE_HARMONY:
+        adata.obsm["X_pca_original"] = X_pca.astype(np.float32)
+        adata.obsm["X_pca_harmony"]  = X_embed.astype(np.float32)
+
     compute_diffusion_map(adata, n_neighbors=30, n_comps=10)
     compute_dpt(adata, root_cluster=root_cluster)
 
@@ -576,6 +604,11 @@ Examples:
                         help="Number of permutations for validation (default: 1000)")
     parser.add_argument("--use-stardist", action="store_true",
                         help="Use StarDist for nuclear segmentation (slower, more accurate)")
+    parser.add_argument("--harmony", action="store_true",
+                        help="Apply Harmony batch correction after PCA (default: off)")
+    parser.add_argument("--harmony-key", type=str, default="section_number",
+                        choices=["slide_id", "section_number", "mouse_id"],
+                        help="Batch grouping variable for Harmony (default: section_number)")
 
     args = parser.parse_args()
 
@@ -599,6 +632,8 @@ Examples:
     STAIN_NORMALIZATION = args.stain_method
     N_PERMUTATIONS = args.n_permutations
     USE_STARDIST = args.use_stardist
+    USE_HARMONY = args.harmony
+    HARMONY_KEY = args.harmony_key
 
     if args.convert:
         convert_ndpi_to_left_half_png()

@@ -26,5 +26,8 @@ shapely>=2.0.0
 # Stain normalization
 staintools>=2.2.3
 
+# Batch correction
+harmonypy>=0.0.9
+
 # Utility
 tqdm>=4.66.0
