@@ -42,7 +42,7 @@ else
 fi
 
 PNG_DIR=$SCRATCH/data/MCF7_x5_cropped
-ANN_DIR=~/cancer_trajectory_atlas/annotations
+ANN_DIR=~/cancer_trajectory_atlas/data/annotations
 OUT_DIR=$SCRATCH/results/$OUT_NAME
 
 mkdir -p logs
@@ -56,7 +56,7 @@ echo "  Output dir:   $OUT_DIR"
 echo "========================================"
 
 # Match env setup from run_all_macenko.sh / submit_qc.sh
-module load StdEnv/2023 python/3.11 gcc opencv openslide openblas
+module load StdEnv/2023 python/3.11 gcc opencv openslide openblas hdf5 igraph
 source ~/envs/atlas/bin/activate
 
 # HF offline — phikon weights must already be cached on Narval from a prior run
@@ -93,4 +93,4 @@ echo ""
 echo "Done. Results in $OUT_DIR"
 echo ""
 echo "Run QC on these results with:"
-echo "  sbatch cancer_trajectory_atlas/qc/submit_qc.sh $OUT_NAME $STAIN_METHOD"
+echo "  sbatch cancer_trajectory_atlas/jobs/submit_qc.sh $OUT_NAME $STAIN_METHOD"

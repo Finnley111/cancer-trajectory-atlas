@@ -2,8 +2,8 @@
 # SLURM job script — Cancer Trajectory Atlas QC diagnostics (steps 1-4)
 #
 # Usage:
-#   sbatch qc/submit_qc.sh atlas_full_reinhard reinhard
-#   sbatch qc/submit_qc.sh atlas_full_macenko  macenko
+#   sbatch cancer_trajectory_atlas/jobs/submit_qc.sh atlas_full_reinhard reinhard
+#   sbatch cancer_trajectory_atlas/jobs/submit_qc.sh atlas_full_macenko  macenko
 #
 # Arguments:
 #   $1 = run name (directory under $SCRATCH/results/)
@@ -34,7 +34,7 @@ echo "Slides dir: $SLIDES_DIR"
 echo "========================================"
 
 # Match the env setup from run_all_macenko.sh
-module load StdEnv/2023 python/3.11 gcc opencv openslide openblas
+module load StdEnv/2023 python/3.11 gcc opencv openslide openblas hdf5 igraph
 source ~/envs/atlas/bin/activate
 
 # HF offline (in case QC code imports anything that loads phikon at import time)
