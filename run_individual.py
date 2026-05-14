@@ -49,6 +49,8 @@ def _load_default_paths():
             "output_dir": _SCRIPT_DIR.parent / "individual_pseudotime_runs",
         }
 
+from .data.slide_registry import KNOWN_NDPI_DIMENSIONS
+
 # Global variables (will be set by CLI arguments)
 PNG_DIR = None
 ANNOTATION_DIR = None
@@ -59,44 +61,23 @@ STRIDE = None
 LEIDEN_RESOLUTION = None
 STAIN_NORMALIZATION = None
 
-# Same fallback table as run_all.py (used when slide_dimensions.json is missing)
-NDPI_SCALE = 0.5
-KNOWN_NDPI_DIMENSIONS = {
-    "6027-4L-2M-1": (96000, 42240),
-    "6027-4L-2M-2": (94080, 45056),
-    "6027-4R-2M-1": (86400, 38016),
-    "6027-4R-2M-2": (94080, 45056),
-    "6028-4L-2M-1": (96000, 49280),
-    "6028-4L-2M-2": (86400, 40832),
-    "6028-4R-2M-1": (80640, 35200),
-    "6028-4R-2M-2": (86400, 38016),
-    "6029-4L-2M-1": (78720, 30976),
-    "6029-4L-2M-2": (74880, 32384),
-    "6029-4R-2M-1": (71040, 35200),
-    "6029-4R-2M-2": (76800, 32384),
-    "6031-4L-2M-1": (82560, 46464),
-    "6031-4L-2M-2": (94080, 46464),
-    "6031-4R-2M-1": (94080, 38016),
-    "6031-4R-2M-2": (78720, 35200),
-}
-
 
 # Slide discovery
 
-def _get_known_dimensions(png_name):
+def _get_known_dimensions(png_name, ndpi_scale):
     stem = Path(png_name).stem
     base_stem = stem.replace("_x5", "")
     dims = KNOWN_NDPI_DIMENSIONS.get(base_stem)
     if dims is None:
         return None, None
     full_w, full_h = dims
-    if NDPI_SCALE != 1.0:
-        full_w = int(full_w * NDPI_SCALE)
-        full_h = int(full_h * NDPI_SCALE)
+    if ndpi_scale != 1.0:
+        full_w = int(full_w * ndpi_scale)
+        full_h = int(full_h * ndpi_scale)
     return full_w, full_h
 
 
-def discover_slides(filter_name=None):
+def discover_slides(ndpi_scale=0.5, filter_name=None):
     png_dir = Path(PNG_DIR)
     ann_dir = Path(ANNOTATION_DIR)
 
@@ -140,7 +121,7 @@ def discover_slides(filter_name=None):
             fw = sidecar["original_full_width"]
             fh = sidecar["original_full_height"]
         else:
-            fw, fh = _get_known_dimensions(png_path.name)
+            fw, fh = _get_known_dimensions(png_path.name, ndpi_scale)
 
         slides.append({
             "image": str(png_path),
@@ -279,41 +260,6 @@ def run_one_slide(slide_cfg, stain_normalizer, out_root, leiden_resolution):
             cropped_h=img_arr.shape[0],
         )
         print(f"  ROIs: {len(roi_polys)} polygons")
-        print(f"  ROIs: {len(roi_polys)} polygons")
-        
-        # ====================================================
-        # DEBUG: VISUALIZE ROI ALIGNMENT (MEMORY SAFE)
-        # ====================================================
-        import matplotlib.pyplot as plt
-        from matplotlib.patches import Polygon as MatplotPoly
-        
-        step = 10
-        small_img = img_arr[::step, ::step]
-        
-        fig, ax = plt.subplots(figsize=(12, 12))
-        ax.imshow(small_img)
-        
-        for poly in roi_polys:
-            # 1. Handle shapely Polygons
-            if hasattr(poly, 'exterior'):
-                x, y = poly.exterior.xy
-                xy_coords = np.column_stack((x, y)) / step
-            # 2. Handle matplotlib.path.Path objects (THIS FIXES YOUR ERROR)
-            elif hasattr(poly, 'vertices'):
-                xy_coords = poly.vertices / step
-            # 3. Handle raw lists/arrays of coordinates
-            else:
-                xy_coords = np.array(poly) / step
-                
-            patch = MatplotPoly(xy_coords, closed=True, edgecolor='lime', facecolor='none', linewidth=2)
-            ax.add_patch(patch)
-            
-        ax.set_title(f"ROI Debug - {name}")
-        debug_path = out_dir / f"DEBUG_ROI_OVERLAY_{name}.jpg"
-        plt.savefig(debug_path, dpi=150, bbox_inches='tight')
-        plt.close(fig) 
-        print(f"  [DEBUG] Saved ROI overlay to {debug_path}. CHECK THIS IMAGE!")
-        # ====================================================
     else:
         print(f"  No annotation — using full slide")
 
@@ -469,7 +415,9 @@ Examples:
     parser.add_argument("--stain-method", type=str, default="reinhard",
                         choices=["reinhard", "macenko", "none"],
                         help="Stain normalization method (default: reinhard)")
-    
+    parser.add_argument("--ndpi-scale", type=float, default=0.5,
+                        help="Downscale factor used when PNGs were created (default: 0.5)")
+
     args = parser.parse_args()
     
     # Set global variables from CLI arguments
@@ -483,7 +431,7 @@ Examples:
     LEIDEN_RESOLUTION = args.leiden_resolution
     STAIN_NORMALIZATION = args.stain_method
 
-    slides = discover_slides(filter_name=args.slide)
+    slides = discover_slides(ndpi_scale=args.ndpi_scale, filter_name=args.slide)
     out_root = Path(OUTPUT_DIR)
     out_root.mkdir(parents=True, exist_ok=True)
 

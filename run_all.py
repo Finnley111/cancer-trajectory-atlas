@@ -2,14 +2,13 @@
 """Convert NDPI slides and run the full atlas pipeline on all slides.
 
 Usage:
-    python run_all.py --convert
-    python run_all.py --run
-    python run_all.py --convert --run
+    python -m cancer_trajectory_atlas.run_all --convert
+    python -m cancer_trajectory_atlas.run_all --run
+    python -m cancer_trajectory_atlas.run_all --convert --run
 """
 
 import argparse
 import json
-import os
 import sys
 import time
 import numpy as np
@@ -17,6 +16,9 @@ from pathlib import Path
 from PIL import Image
 
 Image.MAX_IMAGE_PIXELS = None
+
+from .pipeline_config import PipelineConfig
+from .data.slide_registry import KNOWN_NDPI_DIMENSIONS
 
 
 # Default configuration loader
@@ -43,56 +45,17 @@ def _load_default_paths():
             "output_dir": _SCRIPT_DIR.parent / "results" / "atlas_full",
         }
 
-# Global variables (will be set by CLI arguments)
-NDPI_DIR = None
-PNG_DIR = None
-ANNOTATION_DIR = None
-OUTPUT_DIR = None
-NDPI_LEVEL = None
-NDPI_SCALE = None
-MODEL = None
-PATCH_SIZE = None
-STRIDE = None
-CLUSTERING_METHOD = None
-LEIDEN_RESOLUTION = None
-STAIN_NORMALIZATION = None
-N_PERMUTATIONS = None
-USE_STARDIST = None
-USE_HARMONY = None
-HARMONY_KEY = None
-
-# Known NDPI dimensions at level 0.
-# Used as a fallback when slide_dimensions.json is missing.
-KNOWN_NDPI_DIMENSIONS = {
-    "6027-4L-2M-1": (96000, 42240),
-    "6027-4L-2M-2": (94080, 45056),
-    "6027-4R-2M-1": (86400, 38016),
-    "6027-4R-2M-2": (94080, 45056),
-    "6028-4L-2M-1": (96000, 49280),
-    "6028-4L-2M-2": (86400, 40832),
-    "6028-4R-2M-1": (80640, 35200),
-    "6028-4R-2M-2": (86400, 38016),
-    "6029-4L-2M-1": (78720, 30976),
-    "6029-4L-2M-2": (74880, 32384),
-    "6029-4R-2M-1": (71040, 35200),
-    "6029-4R-2M-2": (76800, 32384),
-    "6031-4L-2M-1": (82560, 46464),
-    "6031-4L-2M-2": (94080, 46464),
-    "6031-4R-2M-1": (94080, 38016),
-    "6031-4R-2M-2": (78720, 35200),
-}
-
 
 # NDPI to PNG conversion
 
-def convert_ndpi_to_left_half_png():
+def convert_ndpi_to_left_half_png(cfg: PipelineConfig):
     """
     Convert all NDPI files to PNG, keeping only the left half.
     Your NDPIs contain two copies of the same slide side by side —
     annotations were done on the left, so we discard the right.
     """
-    ndpi_dir = Path(NDPI_DIR)
-    out_dir = Path(PNG_DIR)
+    ndpi_dir = Path(cfg.ndpi_dir)
+    out_dir = Path(cfg.png_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -110,7 +73,7 @@ def convert_ndpi_to_left_half_png():
 
     print(f"\nFound {len(ndpi_files)} NDPI files in {ndpi_dir}")
     print(f"Output: {out_dir}")
-    print(f"Level: {NDPI_LEVEL}, Scale: {NDPI_SCALE}")
+    print(f"Level: {cfg.ndpi_level}, Scale: {cfg.ndpi_scale}")
     print("=" * 60)
 
     dimensions_log = {}
@@ -121,7 +84,7 @@ def convert_ndpi_to_left_half_png():
 
         # Read dimensions even if the PNG already exists.
         slide = openslide.OpenSlide(str(ndpi_path))
-        dims = slide.level_dimensions[NDPI_LEVEL]
+        dims = slide.level_dimensions[cfg.ndpi_level]
 
         if out_path.exists():
             print(f"\n  SKIP (exists): {out_name}")
@@ -130,11 +93,11 @@ def convert_ndpi_to_left_half_png():
             print(f"\n  Converting: {ndpi_path.name}")
             print(f"    Full size: {dims[0]} x {dims[1]}")
 
-            img = slide.read_region((0, 0), NDPI_LEVEL, dims).convert("RGB")
+            img = slide.read_region((0, 0), cfg.ndpi_level, dims).convert("RGB")
             slide.close()
 
-            if NDPI_SCALE != 1.0:
-                new_size = (int(dims[0] * NDPI_SCALE), int(dims[1] * NDPI_SCALE))
+            if cfg.ndpi_scale != 1.0:
+                new_size = (int(dims[0] * cfg.ndpi_scale), int(dims[1] * cfg.ndpi_scale))
                 img = img.resize(new_size, Image.Resampling.LANCZOS)
                 print(f"    Scaled to: {new_size[0]} x {new_size[1]}")
 
@@ -146,8 +109,8 @@ def convert_ndpi_to_left_half_png():
             print(f"    Saved: {out_name}")
 
         # Log dimensions for later ratio-to-pixel conversion.
-        full_w = int(dims[0] * NDPI_SCALE) if NDPI_SCALE != 1.0 else dims[0]
-        full_h = int(dims[1] * NDPI_SCALE) if NDPI_SCALE != 1.0 else dims[1]
+        full_w = int(dims[0] * cfg.ndpi_scale) if cfg.ndpi_scale != 1.0 else dims[0]
+        full_h = int(dims[1] * cfg.ndpi_scale) if cfg.ndpi_scale != 1.0 else dims[1]
         dimensions_log[out_name] = {
             "original_full_width": full_w,
             "original_full_height": full_h,
@@ -168,7 +131,7 @@ def convert_ndpi_to_left_half_png():
 
 # Pipeline setup
 
-def _get_known_dimensions(png_name):
+def _get_known_dimensions(png_name, ndpi_scale):
     """Look up original NDPI dimensions from the fallback table."""
     stem = Path(png_name).stem              # "6027-4L-2M-1_x5"
     base_stem = stem.replace("_x5", "")     # "6027-4L-2M-1"
@@ -176,18 +139,17 @@ def _get_known_dimensions(png_name):
     dims = KNOWN_NDPI_DIMENSIONS.get(base_stem)
     if dims is not None:
         full_w, full_h = dims
-        # Apply the configured downscale.
-        if NDPI_SCALE != 1.0:
-            full_w = int(full_w * NDPI_SCALE)
-            full_h = int(full_h * NDPI_SCALE)
+        if ndpi_scale != 1.0:
+            full_w = int(full_w * ndpi_scale)
+            full_h = int(full_h * ndpi_scale)
         return full_w, full_h
     return None, None
 
 
-def discover_slides():
+def discover_slides(cfg: PipelineConfig):
     """Discover slides, match annotations, and load original dimensions."""
-    png_dir = Path(PNG_DIR)
-    ann_dir = Path(ANNOTATION_DIR)
+    png_dir = Path(cfg.png_dir)
+    ann_dir = Path(cfg.annotation_dir)
 
     if not png_dir.exists():
         print(f"ERROR: PNG directory not found: {png_dir}")
@@ -236,7 +198,7 @@ def discover_slides():
             slide_entry["original_full_width"] = sidecar_dims["original_full_width"]
             slide_entry["original_full_height"] = sidecar_dims["original_full_height"]
         else:
-            fw, fh = _get_known_dimensions(png_path.name)
+            fw, fh = _get_known_dimensions(png_path.name, cfg.ndpi_scale)
             slide_entry["original_full_width"] = fw
             slide_entry["original_full_height"] = fh
 
@@ -264,19 +226,19 @@ def discover_slides():
     return slides
 
 
-def run_pipeline():
+def run_pipeline(cfg: PipelineConfig):
     """Run the full pipeline on all discovered slides."""
-    slides = discover_slides()
+    slides = discover_slides(cfg)
 
     if len(slides) == 0:
         return
 
-    output_dir = Path(OUTPUT_DIR)
+    output_dir = Path(cfg.output_dir)
     fig_dir = output_dir / "figures"
     output_dir.mkdir(parents=True, exist_ok=True)
     fig_dir.mkdir(parents=True, exist_ok=True)
 
-    if USE_HARMONY and "harmony" not in str(output_dir).lower():
+    if cfg.use_harmony and "harmony" not in str(output_dir).lower():
         print(f"  NOTE: --harmony is active but 'harmony' is not in the output dir name.")
         print(f"  Output: {output_dir}")
         print(f"  Consider passing --output-dir with a distinct name to avoid clobbering.\n")
@@ -295,7 +257,6 @@ def run_pipeline():
     )
     from .validation.morphological_features import compute_morphological_features
     from .validation.correlations import run_full_validation
-    from . import utils
     from .utils import viz, io
 
     # Stain normalization
@@ -304,7 +265,7 @@ def run_pipeline():
     print(f"{'='*60}")
 
     reference_image = slides[0]["image"]
-    stain_normalizer = build_normalizer(STAIN_NORMALIZATION, reference_image)
+    stain_normalizer = build_normalizer(cfg.stain_method, reference_image)
 
     if stain_normalizer is not None:
         import shutil
@@ -320,50 +281,48 @@ def run_pipeline():
     all_slide_ids = []
     slide_names = []
 
-    for i, slide_cfg in enumerate(slides):
-        image_path = slide_cfg["image"]
+    for i, slide_entry in enumerate(slides):
+        image_path = slide_entry["image"]
         slide_name = Path(image_path).stem
         slide_names.append(slide_name)
- 
+
         print(f"\n  [{i+1}/{len(slides)}] {slide_name}")
- 
+
         img = Image.open(image_path).convert("RGB")
         img_arr = np.array(img)
         print(f"    Image size: {img_arr.shape[1]} x {img_arr.shape[0]}")
- 
-        # Stain normalize
+
         img_arr = normalize_slide(img_arr, stain_normalizer, slide_name)
- 
+
         # Load ROI polygons if annotations exist.
         roi_polys = None
-        ann_path = slide_cfg.get("annotation")
+        ann_path = slide_entry.get("annotation")
         if ann_path is not None:
             cropped_w, cropped_h = img_arr.shape[1], img_arr.shape[0]
             roi_polys = load_roi_polygons(
                 ann_path,
                 coordinate_space="ratio",
-                original_full_width=slide_cfg.get("original_full_width"),
-                original_full_height=slide_cfg.get("original_full_height"),
+                original_full_width=slide_entry.get("original_full_width"),
+                original_full_height=slide_entry.get("original_full_height"),
                 cropped_w=cropped_w,
                 cropped_h=cropped_h,
             )
             print(f"    Loaded {len(roi_polys)} ROI hotspot polygons")
         else:
             print(f"    No annotation — using full slide")
- 
-        # Extract patches, filtering to ROIs when available.
+
         patches, coords = get_patches_from_array(
             img_arr,
-            patch_size=PATCH_SIZE,
-            stride=STRIDE,
+            patch_size=cfg.patch_size,
+            stride=cfg.stride,
             image_name=slide_name,
             roi_polygons=roi_polys,
         )
- 
+
         if len(patches) == 0:
             print(f"    WARNING: No patches found — skipping")
             continue
- 
+
         all_patches_list.append(patches)
         all_coords_list.append(coords)
         all_slide_ids.extend([i] * len(patches))
@@ -379,8 +338,8 @@ def run_pipeline():
     print(f"\n  Total: {len(all_patches)} patches from {len(slide_names)} slides")
 
     # Feature extraction
-    print(f"\n  Extracting {MODEL} features...")
-    features = extract_features(all_patches, model_name=MODEL)
+    print(f"\n  Extracting {cfg.model} features...")
+    features = extract_features(all_patches, model_name=cfg.model)
     print(f"  Feature shape: {features.shape}")
 
     # Clustering
@@ -393,19 +352,18 @@ def run_pipeline():
     # Optional Harmony batch correction — applied in PCA space before clustering
     # and DPT so both use the same corrected representation.
     X_embed = X_pca
-    if USE_HARMONY:
+    if cfg.use_harmony:
         from .analysis.harmony import apply_harmony
-        X_embed = apply_harmony(X_pca, slide_names, slide_ids, key=HARMONY_KEY)
+        X_embed = apply_harmony(X_pca, slide_names, slide_ids, key=cfg.harmony_key)
 
     umap_reducer, X_umap = run_umap(X_embed)
 
     cluster_labels = cluster(
         X_embed,
-        method=CLUSTERING_METHOD,
-        resolution=LEIDEN_RESOLUTION,
+        method=cfg.clustering_method,
+        resolution=cfg.leiden_resolution,
     )
 
-    # Validation checks
     slide_check = check_slide_independence(cluster_labels, slide_ids)
     centroids = get_cluster_centroids(X_embed, cluster_labels)
 
@@ -443,11 +401,11 @@ def run_pipeline():
     adata.obs["mouse_id"]       = [slide_names[sid].split("-")[0] for sid in slide_ids]
     adata.obs["section_number"] = [_parse_section(slide_names[sid]) for sid in slide_ids]
 
-    if USE_HARMONY:
+    if cfg.use_harmony:
         adata.obsm["X_pca_original"] = X_pca.astype(np.float32)
         adata.obsm["X_pca_harmony"]  = X_embed.astype(np.float32)
 
-    compute_diffusion_map(adata, n_neighbors=30, n_comps=10)
+    compute_diffusion_map(adata, n_neighbors=cfg.diffmap_neighbors, n_comps=cfg.diffmap_comps)
     compute_dpt(adata, root_cluster=root_cluster)
 
     pseudotime = adata.obs["pseudotime"].values
@@ -470,7 +428,7 @@ def run_pipeline():
     print(f"{'='*60}")
 
     morph_features = compute_morphological_features(
-        all_patches, use_stardist=USE_STARDIST,
+        all_patches, use_stardist=cfg.use_stardist,
     )
 
     for name, values in morph_features.items():
@@ -478,7 +436,7 @@ def run_pipeline():
 
     validation = run_full_validation(
         pseudotime, morph_features, cluster_labels, all_coords,
-        n_permutations=N_PERMUTATIONS,
+        n_permutations=cfg.n_permutations,
     )
 
     viz.plot_feature_vs_pseudotime(
@@ -498,11 +456,9 @@ def run_pipeline():
 
     import pandas as pd
 
-    # AnnData (the full atlas)
     adata.write(output_dir / "adata_full.h5ad")
     print(f"  AnnData: {output_dir / 'adata_full.h5ad'}")
 
-    # CSV results
     df = pd.DataFrame({
         "x": all_coords[:, 0],
         "y": all_coords[:, 1],
@@ -516,16 +472,13 @@ def run_pipeline():
     df.to_csv(output_dir / "results.csv", index=False)
     print(f"  CSV: {output_dir / 'results.csv'}")
 
-    # Validation JSON
     io.save_json(validation, output_dir / "validation.json")
     print(f"  Validation: {output_dir / 'validation.json'}")
 
-    # Save fitted models for future projection
     io.save_pickle(scaler, output_dir / "scaler.pkl")
     io.save_pickle(pca, output_dir / "pca.pkl")
     io.save_pickle(umap_reducer, output_dir / "umap_reducer.pkl")
 
-    # Slide independence report
     io.save_json(slide_check, output_dir / "slide_independence.json")
 
     elapsed = time.time() - t_start
@@ -542,7 +495,7 @@ def run_pipeline():
     print(f"  NEXT STEPS:")
     print(f"  1. Open {fig_dir / 'fig2_cluster_patches.png'}")
     print(f"     Identify the most organized/regular morphology cluster.")
-    print(f"  2. Edit ROOT_CLUSTER at the top of this script.")
+    print(f"  2. Re-run with a different --leiden-resolution if clusters look off.")
     print(f"  3. Re-run to get biologically anchored pseudotime.")
 
 
@@ -554,20 +507,20 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python run_all.py --convert
-  python run_all.py --run
-  python run_all.py --convert --run
-  python run_all.py --run --png-dir ~/scratch/data/png --output-dir ~/scratch/results
-  python run_all.py --run --model phikon --leiden-resolution 1.0 --stain-method macenko
+  python -m cancer_trajectory_atlas.run_all --convert
+  python -m cancer_trajectory_atlas.run_all --run
+  python -m cancer_trajectory_atlas.run_all --convert --run
+  python -m cancer_trajectory_atlas.run_all --run --png-dir ~/scratch/data/png --output-dir ~/scratch/results
+  python -m cancer_trajectory_atlas.run_all --run --model phikon --leiden-resolution 1.0 --stain-method macenko
         """,
     )
-    
+
     # Pipeline steps
     parser.add_argument("--convert", action="store_true",
                         help="Convert NDPI files to left-half PNGs")
     parser.add_argument("--run", action="store_true",
                         help="Run the analysis pipeline")
-    
+
     # Path arguments (with intelligent defaults)
     default_paths = _load_default_paths()
     parser.add_argument("--ndpi-dir", type=Path, default=default_paths["ndpi_dir"],
@@ -578,13 +531,13 @@ Examples:
                         help=f"Directory with annotation JSON files (default: {default_paths['annotation_dir']})")
     parser.add_argument("--output-dir", type=Path, default=default_paths["output_dir"],
                         help=f"Output directory for results (default: {default_paths['output_dir']})")
-    
+
     # NDPI conversion settings
     parser.add_argument("--ndpi-level", type=int, default=0,
-                        help="NDPI pyramid level (0=full res, higher=lower res; default: 0)")
+                        help="NDPI pyramid level (0=full res; default: 0)")
     parser.add_argument("--ndpi-scale", type=float, default=0.5,
-                        help="Additional downscale factor (default: 0.5)")
-    
+                        help="Additional downscale factor applied after level selection (default: 0.5)")
+
     # Pipeline settings
     parser.add_argument("--model", type=str, default="phikon", choices=["phikon", "resnet50"],
                         help="Feature extraction model (default: phikon)")
@@ -592,7 +545,7 @@ Examples:
                         help="Patch size in pixels (default: 112)")
     parser.add_argument("--stride", type=int, default=96,
                         help="Stride between patches (default: 96)")
-    parser.add_argument("--clustering-method", type=str, default="leiden", 
+    parser.add_argument("--clustering-method", type=str, default="leiden",
                         choices=["leiden", "hdbscan", "kmeans"],
                         help="Clustering algorithm (default: leiden)")
     parser.add_argument("--leiden-resolution", type=float, default=0.5,
@@ -609,6 +562,10 @@ Examples:
     parser.add_argument("--harmony-key", type=str, default="section_number",
                         choices=["slide_id", "section_number", "mouse_id"],
                         help="Batch grouping variable for Harmony (default: section_number)")
+    parser.add_argument("--diffmap-neighbors", type=int, default=30,
+                        help="k-NN neighbors for diffusion map (default: 30)")
+    parser.add_argument("--diffmap-comps", type=int, default=10,
+                        help="Number of diffusion map components (default: 10)")
 
     args = parser.parse_args()
 
@@ -617,26 +574,29 @@ Examples:
         print("\n  Specify --convert, --run, or both.")
         sys.exit(0)
 
-    # Set global variables from CLI arguments
-    NDPI_DIR = args.ndpi_dir
-    PNG_DIR = args.png_dir
-    ANNOTATION_DIR = args.annotation_dir
-    OUTPUT_DIR = args.output_dir
-    NDPI_LEVEL = args.ndpi_level
-    NDPI_SCALE = args.ndpi_scale
-    MODEL = args.model
-    PATCH_SIZE = args.patch_size
-    STRIDE = args.stride
-    CLUSTERING_METHOD = args.clustering_method
-    LEIDEN_RESOLUTION = args.leiden_resolution
-    STAIN_NORMALIZATION = args.stain_method
-    N_PERMUTATIONS = args.n_permutations
-    USE_STARDIST = args.use_stardist
-    USE_HARMONY = args.harmony
-    HARMONY_KEY = args.harmony_key
+    cfg = PipelineConfig(
+        ndpi_dir=args.ndpi_dir,
+        png_dir=args.png_dir,
+        annotation_dir=args.annotation_dir,
+        output_dir=args.output_dir,
+        ndpi_level=args.ndpi_level,
+        ndpi_scale=args.ndpi_scale,
+        model=args.model,
+        patch_size=args.patch_size,
+        stride=args.stride,
+        clustering_method=args.clustering_method,
+        leiden_resolution=args.leiden_resolution,
+        stain_method=args.stain_method,
+        n_permutations=args.n_permutations,
+        use_stardist=args.use_stardist,
+        use_harmony=args.harmony,
+        harmony_key=args.harmony_key,
+        diffmap_neighbors=args.diffmap_neighbors,
+        diffmap_comps=args.diffmap_comps,
+    )
 
     if args.convert:
-        convert_ndpi_to_left_half_png()
+        convert_ndpi_to_left_half_png(cfg)
 
     if args.run:
-        run_pipeline()
+        run_pipeline(cfg)

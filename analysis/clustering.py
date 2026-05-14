@@ -78,27 +78,6 @@ def run_umap(
     return reducer, X_umap
 
 
-def umap_sensitivity_check(
-    X_pca: np.ndarray,
-    neighbor_values=(15, 30, 50),
-    min_dist_values=(0.05, 0.1, 0.3),
-) -> Dict[str, np.ndarray]:
-    """Run UMAP with several parameter combinations."""
-    if not UMAP_AVAILABLE:
-        return {}
-
-    results = {}
-    for nn in neighbor_values:
-        for md in min_dist_values:
-            key = f"nn{nn}_md{md}"
-            print(f"  UMAP sensitivity: {key}...")
-            reducer = umap.UMAP(
-                n_neighbors=nn, min_dist=md, metric="cosine", random_state=42
-            )
-            results[key] = reducer.fit_transform(X_pca)
-    return results
-
-
 # Clustering in PCA space
 
 def cluster_hdbscan(
