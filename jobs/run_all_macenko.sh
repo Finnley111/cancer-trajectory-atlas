@@ -33,7 +33,7 @@ cd ~
 python -m cancer_trajectory_atlas.run_all \
     --run \
     --png-dir           $SCRATCH/data/MCF7_x5_cropped \
-    --annotation-dir    ~/cancer_trajectory_atlas/annotations \
+    --annotation-dir    ~/cancer_trajectory_atlas/data/annotations \
     --output-dir        $SCRATCH/results/atlas_full_macenko \
     --stain-method      macenko \
     --model             phikon \

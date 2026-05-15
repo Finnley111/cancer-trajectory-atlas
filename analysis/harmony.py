@@ -48,6 +48,7 @@ def apply_harmony(
     slide_names: list,
     slide_ids: np.ndarray,
     key: str = "section_number",
+    nclust: int = 25,
 ) -> np.ndarray:
     """
     Apply Harmony batch correction to PCA features.
@@ -62,6 +63,9 @@ def apply_harmony(
                      indexed by the integer values in slide_ids.
         slide_ids:   (N,) int array mapping each patch to its slide index.
         key:         Batch grouping: "section_number", "slide_id", or "mouse_id".
+        nclust:      Number of internal K-means clusters for Harmony. Default 25
+                     is appropriate for 2–4 batches; harmonypy's default of 100
+                     is over-parameterized here and triggers fast convergence.
 
     Returns:
         X_corrected: (N, k) Harmony-corrected embedding, same dtype as X_pca.
@@ -97,10 +101,18 @@ def apply_harmony(
     adata_tmp.obsm["X_pca"] = X_pca.astype(np.float32)
     adata_tmp.obs["batch"] = batch
 
-    print(f"  Running harmony_integrate...")
-    sc.external.pp.harmony_integrate(adata_tmp, key="batch")
+    print(f"  Running harmony_integrate (backend=numpy, nclust={nclust})...")
+    sc.external.pp.harmony_integrate(
+        adata_tmp, key="batch", nclust=nclust, backend='numpy',
+    )
 
     X_corrected = adata_tmp.obsm["X_pca_harmony"]
     print(f"  Done. Output shape: {X_corrected.shape}")
+
+    if X_corrected.shape != X_pca.shape:
+        raise ValueError(
+            f"Harmony output shape {X_corrected.shape} != input shape {X_pca.shape}. "
+            f"Backend returned a squeezed array — check harmonypy version."
+        )
 
     return X_corrected.astype(X_pca.dtype)

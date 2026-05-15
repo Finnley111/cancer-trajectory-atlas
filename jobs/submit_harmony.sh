@@ -22,7 +22,7 @@
 #SBATCH --account=def-lmarti46
 #SBATCH --time=08:00:00
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=32G
+#SBATCH --mem=128G
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=atlas_harmony
 #SBATCH --output=logs/atlas_harmony-%j.out
