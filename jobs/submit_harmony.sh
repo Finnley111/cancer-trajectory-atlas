@@ -20,7 +20,7 @@
 #   atlas_macenko_harmony_slideid   (non-default key gets a suffix)
 
 #SBATCH --account=def-lmarti46
-#SBATCH --time=08:00:00
+#SBATCH --time=05:00:00
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=128G
 #SBATCH --gres=gpu:1
