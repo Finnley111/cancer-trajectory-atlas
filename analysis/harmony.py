@@ -101,9 +101,9 @@ def apply_harmony(
     adata_tmp.obsm["X_pca"] = X_pca.astype(np.float32)
     adata_tmp.obs["batch"] = batch
 
-    print(f"  Running harmony_integrate (backend=numpy, nclust={nclust})...")
+    print(f"  Running harmony_integrate (nclust={nclust})...")
     sc.external.pp.harmony_integrate(
-        adata_tmp, key="batch", nclust=nclust, backend='numpy',
+        adata_tmp, key="batch", nclust=nclust,
     )
 
     X_corrected = adata_tmp.obsm["X_pca_harmony"]

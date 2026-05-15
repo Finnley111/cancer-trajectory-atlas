@@ -223,6 +223,20 @@ def discover_slides(cfg: PipelineConfig):
         print(f"  Ratio annotation coordinates will be INCORRECT for these slides.")
         print(f"  Fix: run --convert, or add entries to KNOWN_NDPI_DIMENSIONS.")
 
+    # Apply subset filter if provided.
+    if cfg.slide_filter:
+        total = len(slides)
+        requested = set(cfg.slide_filter)
+        found = {Path(s["image"]).stem for s in slides}
+        not_found = requested - found
+        if not_found:
+            print(f"\nERROR: {len(not_found)} requested slide(s) not found in {png_dir}:")
+            for name in sorted(not_found):
+                print(f"  {name}")
+            sys.exit(1)
+        slides = [s for s in slides if Path(s["image"]).stem in requested]
+        print(f"\n  Subset mode: running on {len(slides)} of {total} slides")
+
     return slides
 
 
@@ -521,6 +535,15 @@ Examples:
     parser.add_argument("--run", action="store_true",
                         help="Run the analysis pipeline")
 
+    # Slide subset
+    parser.add_argument("--slides", type=str, default=None,
+                        help="Comma-separated slide stems to process, e.g. "
+                             "6027-4L-2M-1_x5,6028-4L-2M-1_x5. "
+                             "Default: all slides in --png-dir.")
+    parser.add_argument("--slides-from-file", type=Path, default=None,
+                        help="Text file with one slide stem per line. "
+                             "Mutually exclusive with --slides.")
+
     # Path arguments (with intelligent defaults)
     default_paths = _load_default_paths()
     parser.add_argument("--ndpi-dir", type=Path, default=default_paths["ndpi_dir"],
@@ -569,6 +592,23 @@ Examples:
 
     args = parser.parse_args()
 
+    # Resolve slide filter.
+    if args.slides and args.slides_from_file:
+        parser.error("--slides and --slides-from-file are mutually exclusive")
+
+    slide_filter = None
+    if args.slides:
+        slide_filter = [s.strip() for s in args.slides.split(",") if s.strip()]
+        if not slide_filter:
+            parser.error("--slides was provided but contained no slide names")
+    elif args.slides_from_file:
+        if not args.slides_from_file.exists():
+            parser.error(f"--slides-from-file path not found: {args.slides_from_file}")
+        with open(args.slides_from_file) as f:
+            slide_filter = [line.strip() for line in f if line.strip()]
+        if not slide_filter:
+            parser.error(f"--slides-from-file is empty: {args.slides_from_file}")
+
     if not args.convert and not args.run:
         parser.print_help()
         print("\n  Specify --convert, --run, or both.")
@@ -593,6 +633,7 @@ Examples:
         harmony_key=args.harmony_key,
         diffmap_neighbors=args.diffmap_neighbors,
         diffmap_comps=args.diffmap_comps,
+        slide_filter=slide_filter,
     )
 
     if args.convert:

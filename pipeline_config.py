@@ -39,3 +39,6 @@ class PipelineConfig:
     # Harmony batch correction
     use_harmony: bool = False
     harmony_key: str = "section_number"
+
+    # Slide subset filter (None = all slides)
+    slide_filter: list = None
