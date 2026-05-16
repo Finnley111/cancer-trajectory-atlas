@@ -50,7 +50,7 @@ export HF_HUB_OFFLINE=1
 echo "=== Pre-run check ==="
 echo "PNG dir:"; ls $SCRATCH/data/MCF7_x5_cropped/*.png | head
 echo "Dimensions sidecar:"; ls -lh $SCRATCH/data/MCF7_x5_cropped/slide_dimensions.json
-echo "Annotations:"; ls ~/cancer_trajectory_atlas/annotations/ | head
+echo "Annotations:"; ls ~/cancer_trajectory_atlas/data/annotations/ | head
 echo "Slides:"; cat "$SLIDES_FILE"
 echo "===================="
 
@@ -59,7 +59,7 @@ cd ~
 python -m cancer_trajectory_atlas.run_all \
     --run \
     --png-dir           $SCRATCH/data/MCF7_x5_cropped \
-    --annotation-dir    ~/cancer_trajectory_atlas/annotations \
+    --annotation-dir    ~/cancer_trajectory_atlas/data/annotations \
     --output-dir        "$OUT_DIR" \
     --stain-method      none \
     --slides-from-file  "$SLIDES_FILE" \

@@ -25,7 +25,7 @@ python -c "import staintools, spams; print('staintools + spams OK')" || {
 echo "=== Pre-run check ==="
 echo "PNG dir:"; ls $SCRATCH/data/MCF7_x5_cropped/*.png | head
 echo "Dimensions sidecar:"; ls -lh $SCRATCH/data/MCF7_x5_cropped/slide_dimensions.json
-echo "Annotations:"; ls ~/cancer_trajectory_atlas/annotations/ | head
+echo "Annotations:"; ls ~/cancer_trajectory_atlas/data/annotations/ | head
 echo "===================="
 
 cd ~

@@ -24,7 +24,7 @@ cd ~
 
 python -m cancer_trajectory_atlas.run_individual \
     --png-dir        $SCRATCH/data/MCF7_x5_cropped \
-    --annotation-dir ~/cancer_trajectory_atlas/annotations \
+    --annotation-dir ~/cancer_trajectory_atlas/data/annotations \
     --output-dir     $SCRATCH/results/individual_pseudotime_runs \
     --ndpi-scale     0.5
 
