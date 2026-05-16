@@ -48,7 +48,7 @@ def apply_harmony(
     slide_names: list,
     slide_ids: np.ndarray,
     key: str = "section_number",
-    nclust: int = 25,
+    nclust: int = 10,
 ) -> np.ndarray:
     """
     Apply Harmony batch correction to PCA features.
@@ -63,7 +63,7 @@ def apply_harmony(
                      indexed by the integer values in slide_ids.
         slide_ids:   (N,) int array mapping each patch to its slide index.
         key:         Batch grouping: "section_number", "slide_id", or "mouse_id".
-        nclust:      Number of internal K-means clusters for Harmony. Default 25
+        nclust:      Number of internal K-means clusters for Harmony. Default 10
                      is appropriate for 2–4 batches; harmonypy's default of 100
                      is over-parameterized here and triggers fast convergence.
 
@@ -101,9 +101,12 @@ def apply_harmony(
     adata_tmp.obsm["X_pca"] = X_pca.astype(np.float32)
     adata_tmp.obs["batch"] = batch
 
-    print(f"  Running harmony_integrate (nclust={nclust})...")
+    print(f"  Running harmony_integrate (nclust={nclust}, device=cpu)...")
+    # device='cpu' forces the PyTorch CPU backend. Without it harmonypy 0.2.0
+    # auto-detects CUDA and returns Z_corr with the wrong shape on fast
+    # convergence (2 iterations), causing anndata to reject the obsm assignment.
     sc.external.pp.harmony_integrate(
-        adata_tmp, key="batch", nclust=nclust,
+        adata_tmp, key="batch", nclust=nclust, device='cpu',
     )
 
     X_corrected = adata_tmp.obsm["X_pca_harmony"]
