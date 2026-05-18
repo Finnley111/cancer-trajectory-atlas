@@ -42,3 +42,6 @@ class PipelineConfig:
 
     # Slide subset filter (None = all slides)
     slide_filter: list = None
+
+    # Per-slide Phikon feature cache (None = disabled; set to a Path to enable)
+    features_cache_dir: Path = None

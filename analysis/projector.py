@@ -45,8 +45,15 @@ class AtlasProjector:
         proj.cluster_centroids_ = cluster_centroids
 
         # Train a KNN pseudotime regressor as the fallback path.
+        # Use raw (pre-Harmony) PCA so that projection of new data is consistent:
+        # project() applies scaler+PCA to get raw PCA, and KNN must be trained on the same.
+        # If Harmony was used, raw PCA is stored in obsm["X_pca_original"].
         print("  Training KNN pseudotime regressor (fallback)...")
-        train_pca = adata_train.X
+        if "X_pca_original" in adata_train.obsm:
+            train_pca = adata_train.obsm["X_pca_original"]
+            print("  Using X_pca_original (pre-Harmony) for KNN to match projection input.")
+        else:
+            train_pca = adata_train.X
         train_pt = adata_train.obs["pseudotime"].values
         proj.knn_pseudotime_ = KNeighborsRegressor(
             n_neighbors=min(15, len(train_pca) - 1),

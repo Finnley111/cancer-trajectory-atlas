@@ -295,6 +295,15 @@ def run_pipeline(cfg: PipelineConfig):
     all_slide_ids = []
     slide_names = []
 
+    # Per-slide feature cache support: model loaded lazily on first cache miss.
+    all_features_list = []
+    _cache_model = _cache_processor = _cache_device = None
+    _cache_model_loaded = False
+
+    if cfg.features_cache_dir:
+        Path(cfg.features_cache_dir).mkdir(parents=True, exist_ok=True)
+        print(f"  Feature cache enabled: {cfg.features_cache_dir}")
+
     for i, slide_entry in enumerate(slides):
         image_path = slide_entry["image"]
         slide_name = Path(image_path).stem
@@ -341,6 +350,24 @@ def run_pipeline(cfg: PipelineConfig):
         all_coords_list.append(coords)
         all_slide_ids.extend([i] * len(patches))
 
+        if cfg.features_cache_dir:
+            cache_file = Path(cfg.features_cache_dir) / f"{slide_name}_features.npy"
+            if cache_file.exists():
+                print(f"    Cache hit: {cache_file.name}")
+                all_features_list.append(np.load(cache_file))
+            else:
+                from .features.extractors import load_model_components, extract_features_from_model
+                if not _cache_model_loaded:
+                    print(f"    Pre-loading {cfg.model} model...")
+                    _cache_model, _cache_processor, _cache_device = load_model_components(cfg.model)
+                    _cache_model_loaded = True
+                slide_feats = extract_features_from_model(
+                    patches, _cache_model, _cache_processor, _cache_device
+                )
+                np.save(cache_file, slide_feats)
+                print(f"    Saved to cache: {cache_file.name}")
+                all_features_list.append(slide_feats)
+
     if not all_patches_list:
         print("ERROR: No patches extracted from any slide!")
         return
@@ -351,9 +378,13 @@ def run_pipeline(cfg: PipelineConfig):
 
     print(f"\n  Total: {len(all_patches)} patches from {len(slide_names)} slides")
 
-    # Feature extraction
+    # Feature extraction (from cache or bulk inference)
     print(f"\n  Extracting {cfg.model} features...")
-    features = extract_features(all_patches, model_name=cfg.model)
+    if cfg.features_cache_dir and all_features_list:
+        features = np.concatenate(all_features_list)
+        print(f"  Loaded from cache ({len(all_features_list)} slides).")
+    else:
+        features = extract_features(all_patches, model_name=cfg.model)
     print(f"  Feature shape: {features.shape}")
 
     # Clustering
@@ -495,6 +526,12 @@ def run_pipeline(cfg: PipelineConfig):
 
     io.save_json(slide_check, output_dir / "slide_independence.json")
 
+    # Save AtlasProjector for LOO projection analysis (Experiment 2)
+    print("  Training and saving AtlasProjector...")
+    from .analysis.projector import AtlasProjector
+    projector = AtlasProjector.from_training(scaler, pca, umap_reducer, adata, centroids)
+    projector.save(output_dir / "projector")
+
     elapsed = time.time() - t_start
     print(f"\n{'='*60}")
     print(f"DONE! ({elapsed / 60:.1f} minutes)")
@@ -589,6 +626,10 @@ Examples:
                         help="k-NN neighbors for diffusion map (default: 30)")
     parser.add_argument("--diffmap-comps", type=int, default=10,
                         help="Number of diffusion map components (default: 10)")
+    parser.add_argument("--features-cache-dir", type=Path, default=None,
+                        help="Directory for per-slide Phikon feature cache (.npy). "
+                             "Features are saved on first run and loaded on subsequent runs, "
+                             "avoiding redundant GPU inference across LOO runs.")
 
     args = parser.parse_args()
 
@@ -634,6 +675,7 @@ Examples:
         diffmap_neighbors=args.diffmap_neighbors,
         diffmap_comps=args.diffmap_comps,
         slide_filter=slide_filter,
+        features_cache_dir=args.features_cache_dir,
     )
 
     if args.convert:

@@ -80,3 +80,41 @@ def extract_features(
             features.append(batch_feats)
 
     return np.vstack(features)
+
+
+def load_model_components(model_name: str = "phikon"):
+    """Load model once for repeated per-slide inference. Returns (model, processor, device)."""
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model, processor = get_model(model_name, device)
+    model.eval()
+    return model, processor, device
+
+
+def extract_features_from_model(
+    patches: np.ndarray,
+    model,
+    processor,
+    device,
+    batch_size: int = 32,
+) -> np.ndarray:
+    """Extract features using a pre-loaded model (avoids reloading weights each call)."""
+    features = []
+    with torch.no_grad():
+        for i in tqdm(range(0, len(patches), batch_size), desc="Extracting features"):
+            batch = patches[i : i + batch_size]
+            if processor:
+                pil_batch = [Image.fromarray(p) for p in batch]
+                inputs = processor(images=pil_batch, return_tensors="pt")
+                inputs = {k: v.to(device) for k, v in inputs.items()}
+                outputs = model(**inputs)
+                batch_feats = outputs.last_hidden_state[:, 0].cpu().numpy()
+            else:
+                tensors = [
+                    torch.from_numpy(p).permute(2, 0, 1).float() / 255.0
+                    for p in batch
+                ]
+                batch_input = torch.stack(tensors).to(device)
+                output = model(batch_input)
+                batch_feats = output.squeeze(-1).squeeze(-1).cpu().numpy()
+            features.append(batch_feats)
+    return np.vstack(features)
