@@ -26,8 +26,7 @@ if [ "$SECTION" != "1" ] && [ "$SECTION" != "2" ]; then
     exit 1
 fi
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-SLIDES_FILE="$SCRIPT_DIR/slides_section${SECTION}.txt"
+SLIDES_FILE=~/cancer_trajectory_atlas/jobs/slides_section${SECTION}.txt
 
 OUT_DIR=$SCRATCH/results/atlas_none_section${SECTION}
 

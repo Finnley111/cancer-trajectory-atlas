@@ -101,12 +101,12 @@ def apply_harmony(
     adata_tmp.obsm["X_pca"] = X_pca.astype(np.float32)
     adata_tmp.obs["batch"] = batch
 
-    print(f"  Running harmony_integrate (nclust={nclust}, device=cpu)...")
-    # device='cpu' forces the PyTorch CPU backend. Without it harmonypy 0.2.0
-    # auto-detects CUDA and returns Z_corr with the wrong shape on fast
-    # convergence (2 iterations), causing anndata to reject the obsm assignment.
+    print(f"  Running harmony_integrate (nclust={nclust})...")
+    # harmonypy 0.0.9 (pure numpy) — no GPU path, no shape-squeezing bug.
+    # 0.2.0 was downgraded because its PyTorch backend returns Z_corr as a
+    # 1D array when convergence happens in ≤2 iterations (on both CPU and CUDA).
     sc.external.pp.harmony_integrate(
-        adata_tmp, key="batch", nclust=nclust, device='cpu',
+        adata_tmp, key="batch", nclust=nclust,
     )
 
     X_corrected = adata_tmp.obsm["X_pca_harmony"]
