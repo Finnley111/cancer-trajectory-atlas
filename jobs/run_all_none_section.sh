@@ -70,5 +70,25 @@ python -m cancer_trajectory_atlas.run_all \
     --n-permutations    1000
 
 echo ""
+echo "=== Post-processing: overlays and patch exports ==="
+
+PNG_DIR=$SCRATCH/data/MCF7_x5_cropped
+
+python -m cancer_trajectory_atlas.visualize.interactive_overlay \
+    --results-csv  "$OUT_DIR/results.csv" \
+    --png-dir      "$PNG_DIR" \
+    --output-dir   "$OUT_DIR/overlays" \
+    --patch-size   112
+
+python -m cancer_trajectory_atlas.visualize.export_patches \
+    --results-csv  "$OUT_DIR/results.csv" \
+    --png-dir      "$PNG_DIR" \
+    --output-dir   "$OUT_DIR/patch_export" \
+    --patch-size   112 \
+    --n-per-bin    50
+
+echo ""
 echo "Done. Output size:"
 du -sh "$OUT_DIR" 2>/dev/null
+echo "  Overlays   → $OUT_DIR/overlays/"
+echo "  Patches    → $OUT_DIR/patch_export/"

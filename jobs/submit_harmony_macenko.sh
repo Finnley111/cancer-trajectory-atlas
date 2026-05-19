@@ -72,7 +72,25 @@ python -m cancer_trajectory_atlas.run_all --run    \
     --n-permutations    1000
 
 echo ""
+echo "=== Post-processing: overlays and patch exports ==="
+
+python -m cancer_trajectory_atlas.visualize.interactive_overlay \
+    --results-csv  "$OUT_DIR/results.csv" \
+    --png-dir      "$PNG_DIR" \
+    --output-dir   "$OUT_DIR/overlays" \
+    --patch-size   112
+
+python -m cancer_trajectory_atlas.visualize.export_patches \
+    --results-csv  "$OUT_DIR/results.csv" \
+    --png-dir      "$PNG_DIR" \
+    --output-dir   "$OUT_DIR/patch_export" \
+    --patch-size   112 \
+    --n-per-bin    50
+
+echo ""
 echo "Done. Results in $OUT_DIR"
+echo "  Overlays   → $OUT_DIR/overlays/"
+echo "  Patches    → $OUT_DIR/patch_export/"
 echo ""
 echo "Run QC on these results with:"
 echo "  sbatch cancer_trajectory_atlas/jobs/submit_qc.sh $OUT_NAME macenko"

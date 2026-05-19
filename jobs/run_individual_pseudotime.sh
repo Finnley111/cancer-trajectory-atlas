@@ -29,5 +29,31 @@ python -m cancer_trajectory_atlas.run_individual \
     --ndpi-scale     0.5
 
 echo ""
+echo "=== Post-processing: overlays and patch exports (per slide) ==="
+
+INDIV_ROOT=$SCRATCH/results/individual_pseudotime_runs
+PNG_DIR=$SCRATCH/data/MCF7_x5_cropped
+
+for SLIDE_DIR in "$INDIV_ROOT"/*/; do
+    SLIDE_CSV="$SLIDE_DIR/results.csv"
+    [[ -f "$SLIDE_CSV" ]] || continue
+    SLIDE_NAME=$(basename "$SLIDE_DIR")
+    echo "  Processing: $SLIDE_NAME"
+
+    python -m cancer_trajectory_atlas.visualize.interactive_overlay \
+        --results-csv  "$SLIDE_CSV" \
+        --png-dir      "$PNG_DIR" \
+        --output-dir   "$SLIDE_DIR/overlays" \
+        --patch-size   112
+
+    python -m cancer_trajectory_atlas.visualize.export_patches \
+        --results-csv  "$SLIDE_CSV" \
+        --png-dir      "$PNG_DIR" \
+        --output-dir   "$SLIDE_DIR/patch_export" \
+        --patch-size   112 \
+        --n-per-bin    50
+done
+
+echo ""
 echo "Done. Output size:"
 du -sh $SCRATCH/results/individual_pseudotime_runs 2>/dev/null
