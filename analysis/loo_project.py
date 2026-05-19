@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-from scipy.stats import wasserstein_distance, ks_2samp
+from scipy.stats import wasserstein_distance, ks_2samp, spearmanr
 
 
 def load_cached_features(cache_dir: Path, slide_name: str) -> np.ndarray:
@@ -30,18 +30,21 @@ def load_cached_features(cache_dir: Path, slide_name: str) -> np.ndarray:
 
 
 def load_inmanifold_pseudotime(full_run_dir: Path, slide_name: str) -> np.ndarray:
-    """Pull pseudotime for one slide from the full 16-slide run's results.csv."""
+    """Pull pseudotime for one slide from the full 16-slide run's results.csv.
+
+    Returns values in patch extraction order, matching the feature cache order.
+    """
     csv_path = full_run_dir / "results.csv"
     if not csv_path.exists():
         raise FileNotFoundError(f"results.csv not found in {full_run_dir}")
     df = pd.read_csv(csv_path)
-    mask = df["slide_name"] == slide_name
-    if not mask.any():
+    slide_df = df[df["slide_name"] == slide_name].reset_index(drop=True)
+    if len(slide_df) == 0:
         raise ValueError(
             f"Slide '{slide_name}' not found in {csv_path}.\n"
             f"Available: {df['slide_name'].unique().tolist()}"
         )
-    return df.loc[mask, "pseudotime"].values.astype(float)
+    return slide_df["pseudotime"].values.astype(float)
 
 
 def main():
@@ -77,15 +80,29 @@ def main():
 
     print(f"Loading in-manifold pseudotime from {args.full_run_dir}...")
     inmanifold_pt = load_inmanifold_pseudotime(args.full_run_dir, slide_name)
-    print(f"  In-manifold patches: {len(inmanifold_pt)}, Projected patches: {len(projected_pt)}")
+    n_proj = len(projected_pt)
+    n_inm  = len(inmanifold_pt)
+    print(f"  In-manifold patches: {n_inm}, Projected patches: {n_proj}")
 
-    w_dist         = float(wasserstein_distance(inmanifold_pt, projected_pt))
-    ks_stat, ks_p  = ks_2samp(inmanifold_pt, projected_pt)
+    if n_proj != n_inm:
+        raise ValueError(
+            f"Patch count mismatch for {slide_name}: "
+            f"cache has {n_proj} patches, results.csv has {n_inm}. "
+            "Cache and reference run must use identical extraction settings."
+        )
+
+    # Primary metric: paired Spearman rho (patch i vs patch i)
+    spearman_rho, spearman_p = spearmanr(inmanifold_pt, projected_pt)
+
+    # Secondary: unpaired distribution metrics
+    w_dist        = float(wasserstein_distance(inmanifold_pt, projected_pt))
+    ks_stat, ks_p = ks_2samp(inmanifold_pt, projected_pt)
 
     result = {
         "slide_name":         slide_name,
-        "n_inmanifold":       int(len(inmanifold_pt)),
-        "n_projected":        int(len(projected_pt)),
+        "n_patches":          int(n_proj),
+        "spearman_rho":       float(spearman_rho),
+        "spearman_p":         float(spearman_p),
         "wasserstein":        w_dist,
         "ks_stat":            float(ks_stat),
         "ks_pvalue":          float(ks_p),
@@ -99,7 +116,8 @@ def main():
     with open(json_path, "w") as f:
         json.dump(result, f, indent=2)
     print(f"Saved: {json_path.name}")
-    print(f"  Wasserstein = {w_dist:.4f}  KS = {ks_stat:.4f}  p = {ks_p:.3e}")
+    print(f"  Spearman rho={spearman_rho:.4f}  p={spearman_p:.3e}")
+    print(f"  Wasserstein={w_dist:.4f}  (secondary, distribution-level)")
 
     try:
         import matplotlib
@@ -107,19 +125,28 @@ def main():
         import matplotlib.pyplot as plt
         from scipy.stats import gaussian_kde
 
-        fig, ax = plt.subplots(figsize=(6, 4))
+        fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+
+        ax = axes[0]
+        ax.scatter(inmanifold_pt, projected_pt, s=1, alpha=0.3, rasterized=True)
+        ax.plot([0, 1], [0, 1], "r--", linewidth=1, label="y=x")
+        ax.set_xlabel("In-manifold pseudotime")
+        ax.set_ylabel("Projected pseudotime")
+        ax.set_title(f"Paired patch pseudotime\nSpearman ρ={spearman_rho:.3f}  p={spearman_p:.2e}")
+        ax.legend(fontsize=8)
+
+        ax2 = axes[1]
         x = np.linspace(0, 1, 300)
-        ax.fill_between(x, gaussian_kde(inmanifold_pt)(x), alpha=0.45,
-                        label=f"In-manifold  n={len(inmanifold_pt)}")
-        ax.fill_between(x, gaussian_kde(projected_pt)(x), alpha=0.45,
-                        label=f"Projected    n={len(projected_pt)}")
-        ax.set_xlabel("Pseudotime")
-        ax.set_ylabel("Density")
-        ax.set_title(
-            f"{slide_name}\n"
-            f"Wasserstein={w_dist:.3f}  KS={ks_stat:.3f}  p={ks_p:.2e}"
-        )
-        ax.legend()
+        ax2.fill_between(x, gaussian_kde(inmanifold_pt)(x), alpha=0.45,
+                         label=f"In-manifold  n={n_inm}")
+        ax2.fill_between(x, gaussian_kde(projected_pt)(x), alpha=0.45,
+                         label=f"Projected    n={n_proj}")
+        ax2.set_xlabel("Pseudotime")
+        ax2.set_ylabel("Density")
+        ax2.set_title(f"Distribution comparison\nWasserstein={w_dist:.4f}")
+        ax2.legend(fontsize=8)
+
+        fig.suptitle(slide_name, fontsize=10)
         fig.tight_layout()
         fig_path = args.output_dir / f"loo_distribution_{slide_name}.png"
         fig.savefig(fig_path, dpi=150)

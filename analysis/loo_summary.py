@@ -43,17 +43,21 @@ def main():
     df.to_csv(csv_path, index=False, float_format="%.4f")
     print(f"Summary: {csv_path}")
 
-    display_cols = ["slide_name", "n_inmanifold", "n_projected", "wasserstein", "ks_stat", "ks_pvalue"]
+    # Primary metric is Spearman rho (paired patch-level comparison).
+    # Wasserstein is kept as secondary but is not the headline result.
+    has_spearman = "spearman_rho" in df.columns
+    display_cols = ["slide_name", "n_patches", "spearman_rho", "spearman_p", "wasserstein"] \
+        if has_spearman else ["slide_name", "n_patches", "wasserstein", "ks_stat", "ks_pvalue"]
     print(df[display_cols].to_string(index=False))
 
-    mean_w = df["wasserstein"].mean()
-    print(f"\nMean Wasserstein: {mean_w:.4f}  (n={len(df)} slides)")
-
-    outliers = df[df["wasserstein"] > 0.3]["slide_name"].tolist()
-    if outliers:
-        print(f"\nHigh-distance slides (Wasserstein > 0.3): {outliers}")
-        print("  → Check whether these are predominantly from one section (2M-1 vs 2M-2).")
-        print("  → If so, cross-section generalization is the limiting factor, not manifold instability.")
+    if has_spearman:
+        mean_rho = df["spearman_rho"].mean()
+        print(f"\nMean Spearman rho: {mean_rho:.4f}  (n={len(df)} slides)")
+        low_rho = df[df["spearman_rho"] < 0.5]["slide_name"].tolist()
+        if low_rho:
+            print(f"\nLow-rho slides (rho < 0.5): {low_rho}")
+            print("  → Check whether these are predominantly from one section (2M-1 vs 2M-2).")
+            print("  → A strong negative rho means the pseudotime axis is flipped between runs.")
 
     try:
         import matplotlib
@@ -61,14 +65,30 @@ def main():
         import matplotlib.pyplot as plt
 
         fig, ax = plt.subplots(figsize=(9, 5))
-        colors = ["#d62728" if w > 0.3 else "#1f77b4" for w in df["wasserstein"]]
-        ax.barh(df["slide_name"], df["wasserstein"], color=colors)
-        ax.axvline(0.3, color="red", linestyle="--", linewidth=1.0, alpha=0.7,
-                   label="Threshold (0.3)")
-        ax.axvline(mean_w, color="black", linestyle=":", linewidth=1.0, alpha=0.7,
-                   label=f"Mean ({mean_w:.3f})")
-        ax.set_xlabel("Wasserstein distance  (in-manifold vs. projected pseudotime)")
-        ax.set_title("LOO Projection Stability")
+
+        if has_spearman:
+            df_plot = df.sort_values("spearman_rho")
+            colors = ["#d62728" if r < 0.5 else "#1f77b4" for r in df_plot["spearman_rho"]]
+            ax.barh(df_plot["slide_name"], df_plot["spearman_rho"], color=colors)
+            ax.axvline(0.5, color="red", linestyle="--", linewidth=1.0, alpha=0.7,
+                       label="Threshold (0.5)")
+            mean_rho = df["spearman_rho"].mean()
+            ax.axvline(mean_rho, color="black", linestyle=":", linewidth=1.0, alpha=0.7,
+                       label=f"Mean ({mean_rho:.3f})")
+            ax.set_xlabel("Spearman ρ  (paired patch pseudotime: in-manifold vs. projected)")
+            ax.set_title("LOO Projection Stability  (primary metric: Spearman ρ)")
+        else:
+            df_plot = df.sort_values("wasserstein")
+            mean_w = df["wasserstein"].mean()
+            colors = ["#d62728" if w > 0.3 else "#1f77b4" for w in df_plot["wasserstein"]]
+            ax.barh(df_plot["slide_name"], df_plot["wasserstein"], color=colors)
+            ax.axvline(0.3, color="red", linestyle="--", linewidth=1.0, alpha=0.7,
+                       label="Threshold (0.3)")
+            ax.axvline(mean_w, color="black", linestyle=":", linewidth=1.0, alpha=0.7,
+                       label=f"Mean ({mean_w:.3f})")
+            ax.set_xlabel("Wasserstein distance  (in-manifold vs. projected pseudotime)")
+            ax.set_title("LOO Projection Stability")
+
         ax.legend()
         fig.tight_layout()
 

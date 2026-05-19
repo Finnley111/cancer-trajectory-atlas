@@ -66,10 +66,16 @@ def build_projector_from_artifacts(loo_dir: Path):
 
 
 def run_phase_b(loo_dir: Path, slide_name: str, cache_dir: Path, full_run_dir: Path):
-    """Run loo_project.py logic inline (avoids subprocess overhead)."""
+    """Project held-out slide and compare pseudotime against the full-run reference.
+
+    Primary metric: Spearman rho between PAIRED patch-level pseudotime values.
+    The feature cache preserves patch order, so index i in the cache corresponds
+    to index i in results.csv for that slide. Comparing unpaired distributions
+    (Wasserstein) is kept as a secondary check but is not the main result.
+    """
     import json
     import pandas as pd
-    from scipy.stats import wasserstein_distance, ks_2samp
+    from scipy.stats import wasserstein_distance, ks_2samp, spearmanr
     from cancer_trajectory_atlas.analysis.projector import AtlasProjector
 
     feat_file = cache_dir / f"{slide_name}_features.npy"
@@ -92,26 +98,43 @@ def run_phase_b(loo_dir: Path, slide_name: str, cache_dir: Path, full_run_dir: P
     adata_proj = projector.project(raw_features, method="knn")
     projected_pt = adata_proj.obs["pseudotime"].values.astype(float)
 
+    # Load in-manifold pseudotime in patch order matching the cache.
+    # results.csv lists patches in the same extraction order as the cache.
     print(f"  Loading in-manifold pseudotime...")
     df = pd.read_csv(csv_path)
-    mask = df["slide_name"] == slide_name
-    if not mask.any():
+    slide_df = df[df["slide_name"] == slide_name].reset_index(drop=True)
+    if len(slide_df) == 0:
         available = df["slide_name"].unique().tolist()
         raise ValueError(
             f"Slide '{slide_name}' not in {csv_path}.\n"
             f"Available: {available}"
         )
-    inmanifold_pt = df.loc[mask, "pseudotime"].values.astype(float)
+    inmanifold_pt = slide_df["pseudotime"].values.astype(float)
 
-    print(f"  n_inmanifold={len(inmanifold_pt)}, n_projected={len(projected_pt)}")
+    n_proj = len(projected_pt)
+    n_inm  = len(inmanifold_pt)
+    print(f"  n_inmanifold={n_inm}, n_projected={n_proj}")
 
+    if n_proj != n_inm:
+        raise ValueError(
+            f"Patch count mismatch for {slide_name}: "
+            f"cache has {n_proj} patches, results.csv has {n_inm}. "
+            "This means the cache was built with different extraction settings "
+            "than the reference run. Cannot compute paired Spearman."
+        )
+
+    # Primary metric: paired Spearman rho (preserves ordering at patch level)
+    spearman_rho, spearman_p = spearmanr(inmanifold_pt, projected_pt)
+
+    # Secondary: unpaired distribution metrics
     w_dist        = float(wasserstein_distance(inmanifold_pt, projected_pt))
     ks_stat, ks_p = ks_2samp(inmanifold_pt, projected_pt)
 
     result = {
         "slide_name":         slide_name,
-        "n_inmanifold":       int(len(inmanifold_pt)),
-        "n_projected":        int(len(projected_pt)),
+        "n_patches":          int(n_proj),
+        "spearman_rho":       float(spearman_rho),
+        "spearman_p":         float(spearman_p),
         "wasserstein":        w_dist,
         "ks_stat":            float(ks_stat),
         "ks_pvalue":          float(ks_p),
@@ -125,28 +148,40 @@ def run_phase_b(loo_dir: Path, slide_name: str, cache_dir: Path, full_run_dir: P
     with open(json_path, "w") as f:
         json.dump(result, f, indent=2)
     print(f"  Saved: {json_path.name}")
-    print(f"  Wasserstein={w_dist:.4f}  KS={ks_stat:.4f}  p={ks_p:.3e}")
+    print(f"  Spearman rho={spearman_rho:.4f}  p={spearman_p:.3e}")
+    print(f"  Wasserstein={w_dist:.4f}  (distribution-level, secondary)")
 
-    # KDE comparison plot
+    # Scatter: paired pseudotime comparison (in-manifold vs projected)
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from scipy.stats import gaussian_kde
 
+        fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+
+        # Left: paired scatter
+        ax = axes[0]
+        ax.scatter(inmanifold_pt, projected_pt, s=1, alpha=0.3, rasterized=True)
+        ax.plot([0, 1], [0, 1], "r--", linewidth=1, label="y=x")
+        ax.set_xlabel("In-manifold pseudotime")
+        ax.set_ylabel("Projected pseudotime")
+        ax.set_title(f"Paired patch pseudotime\nSpearman ρ={spearman_rho:.3f}  p={spearman_p:.2e}")
+        ax.legend(fontsize=8)
+
+        # Right: KDE overlay (distribution comparison)
+        from scipy.stats import gaussian_kde
+        ax2 = axes[1]
         x = np.linspace(0, 1, 300)
-        fig, ax = plt.subplots(figsize=(6, 4))
-        ax.fill_between(x, gaussian_kde(inmanifold_pt)(x), alpha=0.45,
-                        label=f"In-manifold  n={len(inmanifold_pt)}")
-        ax.fill_between(x, gaussian_kde(projected_pt)(x), alpha=0.45,
-                        label=f"Projected    n={len(projected_pt)}")
-        ax.set_xlabel("Pseudotime")
-        ax.set_ylabel("Density")
-        ax.set_title(
-            f"{slide_name}\n"
-            f"Wasserstein={w_dist:.3f}  KS={ks_stat:.3f}  p={ks_p:.2e}"
-        )
-        ax.legend()
+        ax2.fill_between(x, gaussian_kde(inmanifold_pt)(x), alpha=0.45,
+                         label=f"In-manifold  n={n_inm}")
+        ax2.fill_between(x, gaussian_kde(projected_pt)(x), alpha=0.45,
+                         label=f"Projected    n={n_proj}")
+        ax2.set_xlabel("Pseudotime")
+        ax2.set_ylabel("Density")
+        ax2.set_title(f"Distribution comparison\nWasserstein={w_dist:.4f}")
+        ax2.legend(fontsize=8)
+
+        fig.suptitle(slide_name, fontsize=10)
         fig.tight_layout()
         fig.savefig(loo_dir / f"loo_distribution_{slide_name}.png", dpi=150)
         plt.close(fig)
