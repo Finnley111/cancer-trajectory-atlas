@@ -14,10 +14,19 @@ Usage (run from ~ on Narval, after git pull):
 import argparse
 import glob
 import pickle
+import re
 import sys
 import traceback
 import numpy as np
 from pathlib import Path
+
+# Make cancer_trajectory_atlas importable when run as a plain script from any CWD.
+# This replicates what `cd ~ && python -m cancer_trajectory_atlas...` does implicitly.
+sys.path.insert(0, str(Path.home()))
+
+# LOO slide directories look like loo_6027-4L-2M-1_x5 (mouse ID is 4 digits).
+# This excludes loo_summary and any other loo_* directories that aren't slide runs.
+_LOO_SLIDE_DIR = re.compile(r"^loo_\d{4}-")
 
 
 def build_projector_from_artifacts(loo_dir: Path):
@@ -160,7 +169,7 @@ def main():
     args = parser.parse_args()
 
     loo_dirs = sorted(p for p in args.loo_root.iterdir()
-                      if p.is_dir() and p.name.startswith("loo_"))
+                      if p.is_dir() and _LOO_SLIDE_DIR.match(p.name))
 
     if not loo_dirs:
         print(f"No loo_* directories found under {args.loo_root}")
