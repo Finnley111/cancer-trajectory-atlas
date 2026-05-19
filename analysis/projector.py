@@ -170,10 +170,10 @@ class AtlasProjector:
         if self.adata_train_ is not None:
             self.adata_train_.write(out / "adata_train.h5ad")
 
-        # Metadata
+        # Metadata — cast numpy scalars to plain Python types for JSON serialization.
         metadata = {
-            "n_training_samples": len(self.adata_train_) if self.adata_train_ is not None else 0,
-            "pca_components": self.pca_.n_components_ if self.pca_ else None,
+            "n_training_samples": int(len(self.adata_train_)) if self.adata_train_ is not None else 0,
+            "pca_components": int(self.pca_.n_components_) if self.pca_ else None,
             "pca_variance_explained": float(np.sum(self.pca_.explained_variance_ratio_)) if self.pca_ else None,
         }
         with open(out / "metadata.json", "w") as f:
