@@ -200,6 +200,8 @@ def main():
                         help="Patch size used during extraction (pixels)")
     parser.add_argument("--slides", nargs="*",
                         help="Process only these slide stems (default: all)")
+    parser.add_argument("--ndpi-scale", type=float, default=0.5,
+                        help="Scale factor used during NDPI→PNG conversion (default: 0.5)")
     args = parser.parse_args()
 
     try:
@@ -231,7 +233,7 @@ def main():
         slide_df = df[df["slide_name"] == slide_name].reset_index(drop=True)
         print(f"  {slide_name}: {len(slide_df)} patches", end="", flush=True)
 
-        fig = build_slide_figure(slide_df, png_path, patch_size=args.patch_size)
+        fig = build_slide_figure(slide_df, png_path, patch_size=args.patch_size, ndpi_scale=args.ndpi_scale)
 
         out_path = args.output_dir / f"overlay_{slide_name}.html"
         fig.write_html(str(out_path), include_plotlyjs="cdn")

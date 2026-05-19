@@ -355,6 +355,7 @@ def run_one_slide(slide_cfg, stain_normalizer, out_root, leiden_resolution):
     # CSV results
     import pandas as pd
     df = pd.DataFrame({
+        "slide_name": name,
         "x": coords[:, 0],
         "y": coords[:, 1],
         "cluster": labels,
